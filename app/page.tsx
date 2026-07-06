@@ -7,7 +7,7 @@ import { parseRawUserInfo } from './utils/crypto';
 import BookingTab from './components/BookingTab';
 import DashboardTab from './components/DashboardTab';
 import CheckTab from './components/CheckTab';
-import MasterPanel from './components/MasterPanel';
+import MapSection from './components/MapSection';
 
 const TIME_SLOTS = [
   { id: '1', name: '9:20 ~ 10:50', startTime: '09:20' },
@@ -31,7 +31,7 @@ const WEEKDAY_RULES: { [key: string]: { [key: string]: string } } = {
 };
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'booking' | 'check' | 'dashboard'>('booking');
+  const [activeTab, setActiveTab] = useState<'booking' | 'check' | 'dashboard' | 'map'>('booking');
 
   const todayStr = '2026-07-06';
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
@@ -39,8 +39,6 @@ export default function Home() {
   const maxDateStr = '2026-07-13';
 
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
-  
-  // 데이터 동기화 상태 원본
   const [myReservations, setMyReservations] = useState<any[]>([]);
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [dbReservations, setDbReservations] = useState<any[]>([]);
@@ -91,11 +89,28 @@ export default function Home() {
     };
   };
 
-  // DB 핸들러 모음 
-  const handleStrictSearch = async (name: string, phone: string) => {
-    const { data } = await supabase.from('reservations').select('*').like('user_name', `${name.trim()} (${phone.trim()})%`);
-    setMyReservations(data || []);
-    setHasSearched(true);
+  const handleStrictSearch = async (type: 'name' | 'phone', value: string) => {
+    try {
+      const cleanValue = value.trim();
+      let query = supabase.from('reservations').select('*');
+      query = query.like('user_name', `%${cleanValue}%`);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      let filteredData = data || [];
+      if (type === 'name') {
+        filteredData = filteredData.filter(res => res.user_name.split(' (')[0].includes(cleanValue));
+      } else {
+        filteredData = filteredData.filter(res => res.user_name.match(/\((.*?)\)/)?.[1].includes(cleanValue));
+      }
+
+      setMyReservations(filteredData);
+      setHasSearched(true);
+    } catch (err) {
+      console.error(err);
+      alert('데이터베이스 조회 실패');
+    }
   };
 
   const handleUserCancel = async (id: number, inputPass: string) => {
@@ -105,38 +120,29 @@ export default function Home() {
 
     if (inputPass !== password) { alert('비밀번호가 일치하지 않습니다.'); return false; }
     await supabase.from('reservations').delete().eq('id', id);
-    alert('예약이 정상 취소되었습니다.');
+    alert('취소 완료');
     fetchReservations(selectedDate);
-    handleStrictSearch(searchNameFromForm(target.user_name), searchPhoneFromForm(target.user_name));
+    handleStrictSearch('name', target.user_name.split(' (')[0]);
     return true;
-  };
-
-  const handleMasterCancel = async (id: number) => {
-    if (!confirm('데스크 마스터 직권으로 예약을 강제 취소하시겠습니까?')) return;
-    await supabase.from('reservations').delete().eq('id', id);
-    alert('강제 취소 완료');
-    fetchReservations(selectedDate);
   };
 
   const handleReservationSubmit = async (slot: any, sport: string, name: string, phone: string, pass: string) => {
     const combined = `${name} (${phone}) [${pass}]`;
     const { error } = await supabase.from('reservations').insert([{ user_name: combined, sport_name: sport, reservation_date: selectedDate, slot_time: slot.startTime }]);
-    if (error) setResultMessage({ success: false, message: `저장 실패: ${error.message}` });
-    else { setResultMessage({ success: true, message: '🎉 예약이 성공적으로 등록되었습니다!' }); fetchReservations(selectedDate); }
+    if (error) setResultMessage({ success: false, message: `저장 실패` });
+    else { setResultMessage({ success: true, message: '🎉 예약 완료!' }); fetchReservations(selectedDate); }
   };
-
-  const searchNameFromForm = (str: string) => str.split(' (')[0];
-  const searchPhoneFromForm = (str: string) => str.split(' (')[1]?.split(')')[0] || '';
 
   return (
     <main className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-black">
       <div className="max-w-2xl w-full space-y-4">
-        <h1 className="text-2xl font-bold text-gray-800 text-center mb-2">🏛️ 운암복합문화체육센터 예약 시스템</h1>
+        <h1 className="text-2xl font-bold text-gray-800 text-center mb-2">🏛️ 운암복합문화체육센터</h1>
 
         <div className="flex border-b border-gray-200 bg-white rounded-t-xl overflow-hidden shadow-sm">
-          <button onClick={() => setActiveTab('booking')} className={`flex-1 py-3 text-center text-sm font-semibold border-b-2 transition-all ${activeTab === 'booking' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>📅 예약 신청</button>
-          <button onClick={() => setActiveTab('dashboard')} className={`flex-1 py-3 text-center text-sm font-semibold border-b-2 transition-all ${activeTab === 'dashboard' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>📋 실시간 현황판</button>
-          <button onClick={() => setActiveTab('check')} className={`flex-1 py-3 text-center text-sm font-semibold border-b-2 transition-all ${activeTab === 'check' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>🔍 예약 확인</button>
+          <button onClick={() => setActiveTab('booking')} className={`flex-1 py-3 text-sm font-semibold border-b-2 ${activeTab === 'booking' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>📅 예약</button>
+          <button onClick={() => setActiveTab('dashboard')} className={`flex-1 py-3 text-sm font-semibold border-b-2 ${activeTab === 'dashboard' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>📋 현황</button>
+          <button onClick={() => setActiveTab('check')} className={`flex-1 py-3 text-sm font-semibold border-b-2 ${activeTab === 'check' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>🔍 확인</button>
+          <button onClick={() => setActiveTab('map')} className={`flex-1 py-3 text-sm font-semibold border-b-2 ${activeTab === 'map' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>📍 위치</button>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-center gap-4">
@@ -145,18 +151,10 @@ export default function Home() {
           <span className="text-md font-bold text-blue-600">({dayOfWeek}요일)</span>
         </div>
 
-        {/* 원띵 컴포넌트들 조율 분기점 */}
-        {activeTab === 'booking' && (
-          <BookingTab timeSlots={TIME_SLOTS} weekdayRules={WEEKDAY_RULES} dayOfWeek={dayOfWeek} sports={['배드민턴', '피클볼', '농구']} getTimeLockStatus={getTimeLockStatus} getSlotStatusInfo={getSlotStatusInfo} onReservationSubmit={handleReservationSubmit} resultMessage={resultMessage} setResultMessage={setResultMessage} selectedSlot={selectedSlot} setSelectedSlot={setSelectedSlot} />
-        )}
-        {activeTab === 'dashboard' && (
-          <DashboardTab selectedDate={selectedDate} dayOfWeek={dayOfWeek} timeSlots={TIME_SLOTS} weekdayRules={WEEKDAY_RULES} dbReservations={dbReservations} getTimeLockStatus={getTimeLockStatus} getSlotStatusInfo={getSlotStatusInfo} onSlotClick={(slot) => { setSelectedSlot(slot); setActiveTab('booking'); }} />
-        )}
-        {activeTab === 'check' && (
-          <CheckTab myReservations={myReservations} hasSearched={hasSearched} onSearch={handleStrictSearch} onCancel={handleUserCancel} />
-        )}
-
-        <MasterPanel selectedDate={selectedDate} dbReservations={dbReservations} onMasterCancel={handleMasterCancel} />
+        {activeTab === 'booking' && <BookingTab timeSlots={TIME_SLOTS} weekdayRules={WEEKDAY_RULES} dayOfWeek={dayOfWeek} sports={['배드민턴', '피클볼', '농구']} getTimeLockStatus={getTimeLockStatus} getSlotStatusInfo={getSlotStatusInfo} onReservationSubmit={handleReservationSubmit} resultMessage={resultMessage} setResultMessage={setResultMessage} selectedSlot={selectedSlot} setSelectedSlot={setSelectedSlot} />}
+        {activeTab === 'dashboard' && <DashboardTab selectedDate={selectedDate} dayOfWeek={dayOfWeek} timeSlots={TIME_SLOTS} weekdayRules={WEEKDAY_RULES} dbReservations={dbReservations} getTimeLockStatus={getTimeLockStatus} getSlotStatusInfo={getSlotStatusInfo} onSlotClick={(slot) => { setSelectedSlot(slot); setActiveTab('booking'); }} />}
+        {activeTab === 'check' && <CheckTab myReservations={myReservations} hasSearched={hasSearched} onSearch={handleStrictSearch} onCancel={handleUserCancel} />}
+        {activeTab === 'map' && <MapSection />}
       </div>
     </main>
   );
