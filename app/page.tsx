@@ -330,6 +330,7 @@ export default function Home() {
             getTimeLockStatus={getTimeLockStatus} 
             getSlotStatusInfo={getSlotStatusInfo} 
             onSlotClick={(slot) => { setSelectedSlot(slot); setActiveTab('booking'); }} 
+            sports={globalSports} // 🎯 [이 한 줄만 추가!] 자식 현황판에 마스터 종목 배열을 전달합니다.
           />
         )}
         
