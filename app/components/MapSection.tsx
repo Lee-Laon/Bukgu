@@ -32,9 +32,9 @@ export default function MapSection() {
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <a href={MAP_LINKS.kakao} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center bg-[#FEE500] text-[#191919] text-xs font-bold py-3 rounded-xl shadow-sm">💛 카카오맵</a>
-        <a href={MAP_LINKS.naver} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center bg-[#03C75A] text-white text-xs font-bold py-3 rounded-xl shadow-sm">💚 네이버지도</a>
-        <a href={MAP_LINKS.google} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center bg-gray-100 text-gray-800 text-xs font-bold py-3 rounded-xl shadow-sm border border-gray-300">🌐 구글맵</a>
+        <a href={MAP_LINKS.kakao} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center bg-[#FEE500] text-[#191919] text-xs font-bold py-3 rounded-xl shadow-sm">카카오맵</a>
+        <a href={MAP_LINKS.naver} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center bg-[#03C75A] text-white text-xs font-bold py-3 rounded-xl shadow-sm">네이버지도</a>
+        <a href={MAP_LINKS.google} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center bg-gray-100 text-gray-800 text-xs font-bold py-3 rounded-xl shadow-sm border border-gray-300">구글맵</a>
       </div>
     </div>
   );

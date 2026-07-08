@@ -32,34 +32,26 @@ export default function BookingTab({
   selectedSlot,
   setSelectedSlot,
 }: BookingTabProps) {
+  // 폼 입력 상태
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pass, setPass] = useState('');
   const [sport, setSport] = useState('배드민턴');
-  
   const [headCount, setHeadCount] = useState<number>(1);
   const [courtCount, setCourtCount] = useState<number>(1);
 
-  // 🚨 연락처 11자리 정밀 검증용 가드 (010-xxxx-xxxx 총 13자)
   const isPhoneValid = phone.length === 13;
 
-  // ⏱️ [UX] 연락처 입력 시 실시간으로 하이픈(-)을 자동으로 삽입해주는 헬퍼 함수
+  // 연락처 자동 하이픈 삽입 헬퍼
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/[^0-9]/g, ''); // 숫자만 남기기
+    const val = e.target.value.replace(/[^0-9]/g, '');
     let formatted = val;
-    
-    if (val.length <= 3) {
-      formatted = val;
-    } else if (val.length <= 7) {
-      formatted = `${val.slice(0, 3)}-${val.slice(3)}`;
-    } else {
-      formatted = `${val.slice(0, 3)}-${val.slice(3, 7)}-${val.slice(7, 11)}`;
-    }
-    
+    if (val.length <= 3) formatted = val;
+    else if (val.length <= 7) formatted = `${val.slice(0, 3)}-${val.slice(3)}`;
+    else formatted = `${val.slice(0, 3)}-${val.slice(3, 7)}-${val.slice(7, 11)}`;
     setPhone(formatted);
   };
 
-  // 🎯 시간대를 이동할 때마다 종목을 안전하게 동기화 리셋
   useEffect(() => {
     if (selectedSlot) {
       const status = getSlotStatusInfo(selectedSlot.id, selectedSlot.startTime);
@@ -79,26 +71,6 @@ export default function BookingTab({
     ? getSlotStatusInfo(selectedSlot.id, selectedSlot.startTime)
     : { isFull: false, remainingCourts: 3, activeSports: [], isSportLimitReached: false, allowedSports: undefined };
 
-  // 💬 [신규] 카카오톡 / 문자 메시지 네이티브 공유 엔진 가동
-  const handleShare = async () => {
-    if (!selectedSlot) return;
-    
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: '🏛️ 운암복합문화체육센터 대관 완료',
-          text: `📢 [체육관 예약 완료 안내]\n\n• 이용 목적: ${sport}\n• 필요 코트: ${courtCount}코트\n• 입장 인원: ${headCount}명\n\n※ 비대면 예약 취소 시 본인이 설정한 [4자리 비밀번호]가 반드시 필요합니다.`,
-        });
-      } catch (err) {
-        console.log('공유 취소 또는 에러:', err);
-      }
-    } else {
-      // Web Share API 미지원 환경용 클립보드 백업 폴백
-      navigator.clipboard.writeText(`[운암체육센터] 예약 성공!\n종목: ${sport}\n코트: ${courtCount}코트\n인원: ${headCount}명`);
-      alert('📋 공유 기능이 제한된 브라우저 환경이므로 예약 내용이 클립보드에 복사되었습니다.');
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isPhoneValid) {
@@ -107,6 +79,7 @@ export default function BookingTab({
     }
     await onReservationSubmit(selectedSlot, sport, name, phone, pass, headCount, courtCount);
     
+    // 폼 초기화
     setName(''); 
     setPhone(''); 
     setPass(''); 
@@ -129,6 +102,16 @@ export default function BookingTab({
             const isDisabled = isPast || isFull;
             const isSelected = selectedSlot?.id === slot.id;
 
+            let availableSportsArray: string[] = [];
+            if (slot.allowedSports && slot.allowedSports.length > 0) {
+              availableSportsArray = slot.allowedSports;
+            } else if (status.isSportLimitReached) {
+              availableSportsArray = status.activeSports;
+            } else {
+              availableSportsArray = sports;
+            }
+            const sportsLabel = availableSportsArray.map(sp => `[${sp}]`).join(', ');
+
             return (
               <button
                 key={slot.id}
@@ -148,10 +131,11 @@ export default function BookingTab({
                       : 'bg-white text-gray-700 hover:bg-blue-50 hover:border-blue-300'
                 }`}
               >
-                <div>⏱️ {slot.name}</div>
+                <div className="font-bold">⏱️ {slot.name}</div>
                 {!isDisabled && (
-                  <div className={`text-[10px] mt-1 font-medium ${isSelected ? 'text-blue-200' : 'text-blue-500'}`}>
-                    (잔여: {status.remainingCourts}코트 / 개설: {status.activeSports.length}종목)
+                  <div className={`text-[10px] mt-1.5 font-medium leading-relaxed ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>
+                    <div>• 잔여 코트 : <span className="font-bold text-red-500 bg-red-50 px-1 py-0.2 rounded mx-0.5">{status.remainingCourts}개</span></div>
+                    <div className="mt-0.5">• 신청 가능 종목 : <span className={isSelected ? 'text-white font-bold' : 'text-blue-600 font-bold'}>{sportsLabel}</span></div>
                   </div>
                 )}
                 {isFull && <div className="text-[10px] mt-1 text-red-500 font-bold">🔒 [대관매진]</div>}
@@ -197,14 +181,13 @@ export default function BookingTab({
             </div>
           </div>
 
-          {/* 인적 사항 기입 인풋 (UX 고도화 포함) */}
+          {/* 인적 사항 기입 인풋 */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-gray-600 mb-1">👤 예약자 성함</label>
               <input type="text" required placeholder="홍길동" value={name} onChange={(e) => setName(e.target.value)} className="w-full border rounded-lg p-2 text-sm text-black bg-white focus:border-blue-500 focus:outline-none" />
             </div>
             
-            {/* 📱 동적 하이픈 및 자릿수 미달 경고 테두리 인풋 */}
             <div>
               <label className="block text-[11px] font-bold text-gray-600 mb-1">📱 연락처 번호</label>
               <input 
@@ -215,22 +198,13 @@ export default function BookingTab({
                 value={phone} 
                 onChange={handlePhoneChange} 
                 className={`w-full border rounded-lg p-2 text-sm text-black bg-white focus:outline-none transition-all ${
-                  phone.length > 0 && !isPhoneValid
-                    ? 'border-red-500 bg-red-50/20 focus:border-red-600 text-red-600' // 🚨 미달 시 레드 스킨 경고
-                    : 'border-gray-200 focus:border-blue-500'
+                  phone.length > 0 && !isPhoneValid ? 'border-red-500 bg-red-50/20 text-red-600' : 'border-gray-200 focus:border-blue-500'
                 }`} 
               />
-              {phone.length > 0 && !isPhoneValid && (
-                <p className="text-[10px] text-red-500 mt-1 font-semibold animate-pulse">⚠️ 11자리 번호를 가득 채워주세요.</p>
-              )}
             </div>
 
-            {/* 🔒 비밀번호 안내 툴팁 조합 */}
             <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-[11px] font-bold text-gray-600">🔒 예약 비밀번호</label>
-                <span className="text-[9px] text-blue-500 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">※ 취소시 검증용</span>
-              </div>
+              <label className="block text-[11px] font-bold text-gray-600 mb-1">🔒 예약 비밀번호 (4자리)</label>
               <input type="password" required placeholder="4자리 숫자" maxLength={4} value={pass} onChange={(e) => setPass(e.target.value.replace(/[^0-9]/g, ''))} className="w-full border rounded-lg p-2 text-sm text-black bg-white focus:border-blue-500 focus:outline-none" />
             </div>
           </div>
@@ -252,7 +226,6 @@ export default function BookingTab({
                 {[0.5, 1, 2, 3].map((num) => {
                   const isOverCourt = num > currentStatus.remainingCourts;
                   const isChecked = courtCount === num;
-                  
                   return (
                     <button
                       key={num}
@@ -260,11 +233,7 @@ export default function BookingTab({
                       disabled={isOverCourt}
                       onClick={() => setCourtCount(num)}
                       className={`py-1 rounded text-xs font-bold transition-all ${
-                        isOverCourt
-                          ? 'bg-gray-100 text-gray-300 cursor-not-allowed opacity-40 line-through'
-                          : isChecked
-                            ? 'bg-blue-600 text-white shadow-md'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        isOverCourt ? 'bg-gray-100 text-gray-300 opacity-40 line-through' : isChecked ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
                       {num}개
@@ -275,24 +244,18 @@ export default function BookingTab({
             </div>
           </div>
 
-          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md active:scale-[0.99]">
+          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
             🚀 체육관 예약 대관 신청하기
           </button>
         </form>
       )}
 
-      {/* 결과 및 공유 패널 */}
+      {/* 결과 메시지 (예약 신청 후 상단 성공/실패 가이드라인) */}
       {resultMessage && (
-        <div className={`p-4 rounded-xl border font-semibold text-center text-sm space-y-2.5 ${resultMessage.success ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+        <div className={`p-4 rounded-xl border font-semibold text-center text-sm ${resultMessage.success ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
           <div>{resultMessage.message}</div>
           {resultMessage.success && (
-            <button
-              type="button"
-              onClick={handleShare}
-              className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-5 rounded-lg text-xs transition-all shadow active:scale-95 inline-flex items-center justify-center gap-1.5"
-            >
-              💬 카카오톡 / 문자 예약 정보 전달 및 공유하기
-            </button>
+            <p className="text-xs mt-1 text-gray-600 font-normal">상단의 <span className="font-bold text-blue-600">[확인]</span> 탭으로 이동하시면 예약 내역 조회 및 공유/취소가 가능합니다.</p>
           )}
         </div>
       )}

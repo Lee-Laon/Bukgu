@@ -18,7 +18,7 @@ interface DashboardTabProps {
   getTimeLockStatus: (startTime: string) => 'past' | 'imminent' | 'none';
   getSlotStatusInfo: (slotId: string, startTime: string) => SlotStatusResult;
   onSlotClick: (slot: TimeSlot) => void;
-  sports: string[]; // 🎯 [신규] 전역 종목 리스트 타입을 추가합니다.
+  sports: string[];
 }
 
 export default function DashboardTab({
@@ -29,14 +29,14 @@ export default function DashboardTab({
   getTimeLockStatus,
   getSlotStatusInfo,
   onSlotClick,
-  sports, // 🎯 구조분해 파라미터 주입
+  sports,
 }: DashboardTabProps) {
   return (
     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4 text-black animate-fadeIn">
       <div className="border-b border-gray-100 pb-2">
         <h2 className="text-md font-bold text-gray-800 flex items-center gap-1.5">
           <span className="flex h-2 w-2 rounded-full bg-green-500"></span>
-          실시간 코트 대관 및 강좌 이용 현황판
+          체육관 예약 현황판
         </h2>
         <p className="text-[11px] text-gray-400 mt-0.5">기준일자: {selectedDate} ({dayOfWeek}요일)</p>
       </div>
@@ -46,14 +46,12 @@ export default function DashboardTab({
           const lockStatus = getTimeLockStatus(slot.startTime);
           const status = getSlotStatusInfo(String(slot.id), slot.startTime);
           
-          // 🎯 [핵심 알고리즘 고도화] 
-          // 등록된 제한 종목 개수가 전역 마스터 종목 개수보다 적을 때에만 '실질적인 종목 제한(강좌)'이 있다고 판별합니다.
+          // 등록된 제한 종목 개수가 전역 마스터 종목 개수보다 적을 때 실질적인 강좌 제한으로 판별
           const hasSportRestriction = 
             slot.allowedSports && 
             slot.allowedSports.length > 0 && 
             slot.allowedSports.length < (sports?.length || 3);
           
-          // 현재 한 면이라도 예약(선점)된 코트가 존재하는가?
           const hasExistingReservations = status.allocatedCourts > 0;
 
           let cardBg = "bg-gray-50 border-gray-200";
@@ -67,22 +65,22 @@ export default function DashboardTab({
           // 🚫 1. 운영 종료 및 마감 임박 예외 처리
           if (lockStatus === 'past') {
             cardBg = "bg-gray-100/70 border-gray-200 opacity-60";
-            statusBadge = <span className="bg-gray-200 text-gray-500 text-[11px] px-2 py-0.5 rounded-md font-medium">⏳ 운영 종료</span>;
-            subGuideText = "오늘의 운영 및 접수가 마감된 시간대입니다.";
+            statusBadge = <span className="bg-gray-200 text-gray-500 text-[11px] px-2 py-0.5 rounded-md font-medium">⏳ 예약 마감</span>;
+            subGuideText = "접수가 마감된 시간대입니다.";
           } else if (lockStatus === 'imminent') {
             cardBg = "bg-amber-50/40 border-amber-200";
             statusBadge = <span className="bg-amber-100 text-amber-700 text-[11px] px-2 py-0.5 rounded-md font-bold animate-pulse">⚠️ 마감 임박</span>;
-            subGuideText = "현장 마감 직전 상태입니다. 데스크에 문의하세요.";
+            subGuideText = "현장 마감 직전 상태입니다. 안내 데스크에 문의하세요.";
           } 
           
-          // 🚫 2. 전체 매진 상태
+          // 🚫 2. [4번 분기] 전체 매진 상태 ➔ 행정 문구 교체
           else if (status.isFull) {
             cardBg = "bg-red-50/30 border-red-200";
-            statusBadge = <span className="bg-red-50 text-red-600 border border-red-200 text-[11px] px-2 py-0.5 rounded-md font-bold">🔴 전체 매진</span>;
-            subGuideText = "예약 가능한 잔여 코트가 없습니다 (대기 불가).";
+            statusBadge = <span className="bg-red-50 text-red-600 border border-red-200 text-[11px] px-2 py-0.5 rounded-md font-bold">🔴 예약 마감 (잔여 코트 없음)</span>;
+            subGuideText = "예약 가능한 잔여 코트가 없습니다.";
           } 
           
-          // 🚫 3. 실질적인 강좌 운영 제한 상태 (허용 종목이 마스터 종목보다 적을 때만 주황불)
+          // 🚫 3. [2번 분기] 강좌 운영 제한 상태 ➔ 행정 문구 교체
           else if (hasSportRestriction) {
             cardBg = "bg-orange-50/40 border-orange-200";
             statusBadge = (
@@ -90,29 +88,29 @@ export default function DashboardTab({
                 🟠 {status.remainingCourts}코트 한정 이용 가능
               </span>
             );
-            subGuideText = `📢 [강좌운영] ${slot.allowedSports?.join(', ')} 종목 강좌로 인해 제한적으로 이용 가능함`;
+            subGuideText = `📢 [관내 강좌] 해당 시간대 [${slot.allowedSports?.join(', ')}] 강좌 운영으로 일반 대관 제한`;
           } 
           
-          // 🚫 4. 강좌 제한은 없으나 선행 일반 예약이 존재하여 일부 코트가 차 있는 상태
+          // 🚫 4. [3번 분기] 선행 예약 존재 상태 ➔ 행정 문구 교체
           else if (hasExistingReservations) {
             cardBg = "bg-amber-50/30 border-amber-200";
             statusBadge = (
               <span className="bg-amber-100 text-amber-700 border border-amber-300 text-[11px] px-2 py-0.5 rounded-md font-bold">
-                🟡 {status.remainingCourts}코트 선점 이용 가능
+                🟡 {status.remainingCourts}코트 이용 가능
               </span>
             );
-            subGuideText = `현재 대관 종목: [${status.activeSports.join(', ')}] (종목 제한 규칙이 적용될 수 있음)`;
+            subGuideText = `🟡 타 종목 예약 중 [현재 개설: ${status.activeSports.join(', ')}] (잔여 코트 범위 내 예약 가능)`;
           } 
           
-          // 🚫 5. 코트가 전부 비어 있고 모든 종목 진입이 가능한 청정 상태
+          // 🚫 5. [1번 분기] 완전 청정 상태 ➔ 행정 문구 교체
           else {
             cardBg = "bg-emerald-50/20 border-emerald-200 hover:border-blue-300";
             statusBadge = (
               <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-[11px] px-2 py-0.5 rounded-md font-bold">
-                🟢 {status.remainingCourts}코트 전부 비어있음
+                🟢 전 코트 일반 대관 가능
               </span>
             );
-            subGuideText = "제한 없는 시간대입니다. 자유롭게 종목을 선택하여 예약하세요.";
+            subGuideText = "제한 없는 시간대입니다. 자유롭게 종목을 선택하여 예약을 진행하세요.";
           }
 
           return (

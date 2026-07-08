@@ -220,7 +220,6 @@ export default function Home() {
   };
 
   const handleReservationSubmit = async (slot: any, sport: string, name: string, phone: string, pass: string, headCount: number = 1, courtCount: number = 1) => {
-    // 🎯 [코드 레벨 더블 가드] 유저가 브라우저 개발자 도구 등으로 min 속성을 변조해 진입했을 때를 대비한 백엔드 서브 가드
     if (selectedDate < todayStr) {
       alert('❌ 과거 날짜에는 예약을 진행할 수 없습니다.');
       return;
@@ -261,7 +260,6 @@ export default function Home() {
     }
   };
 
-  // DB 규격(start_time 등)을 BookingTab 카멜케이스 포맷과 맞춤 맵핑
   const adaptedTimeSlots = dynamicTimeConfigs.map(c => ({
     id: c.id, 
     name: c.slot_name, 
@@ -269,7 +267,6 @@ export default function Home() {
     allowedSports: c.allowed_sports
   }));
 
-  // 🎯 [인풋 핸들러 안전 장치] 사용자가 수동으로 타이핑하여 과거 일자를 치고 들어올 때 자동 보정
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputDate = e.target.value;
     if (inputDate < todayStr) {
@@ -285,6 +282,7 @@ export default function Home() {
       <div className="max-w-2xl w-full space-y-4">
         <h1 className="text-2xl font-bold text-gray-800 text-center mb-2">🏛️ 운암복합문화체육센터</h1>
 
+        {/* 📑 상단 메인 탭 전환 영역 */}
         <div className="flex border-b border-gray-200 bg-white rounded-t-xl overflow-hidden shadow-sm">
           <button onClick={() => setActiveTab('booking')} className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-all ${activeTab === 'booking' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>📅 예약</button>
           <button onClick={() => setActiveTab('dashboard')} className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-all ${activeTab === 'dashboard' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>📋 현황</button>
@@ -292,7 +290,7 @@ export default function Home() {
           <button onClick={() => setActiveTab('map')} className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-all ${activeTab === 'map' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500'}`}>📍 위치</button>
         </div>
 
-        {/* 🎯 [완벽한 더블 가드 완성] min={todayStr} 바인딩 및 onChange={handleDateChange} 스위칭 가동 */}
+        {/* 📅 기준일 달력 제어 헤더 */}
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-center gap-4">
           <label className="font-semibold text-gray-700 text-sm">조회/예약 기준일 선택:</label>
           <input 
@@ -306,6 +304,7 @@ export default function Home() {
           <span className="text-md font-bold text-blue-600">({dayOfWeek}요일)</span>
         </div>
 
+        {/* 1. 예약 탭 */}
         {activeTab === 'booking' && (
           <BookingTab 
             timeSlots={adaptedTimeSlots} 
@@ -320,6 +319,7 @@ export default function Home() {
           />
         )}
         
+        {/* 2. 현황 탭 */}
         {activeTab === 'dashboard' && (
           <DashboardTab 
             selectedDate={selectedDate} 
@@ -330,10 +330,11 @@ export default function Home() {
             getTimeLockStatus={getTimeLockStatus} 
             getSlotStatusInfo={getSlotStatusInfo} 
             onSlotClick={(slot) => { setSelectedSlot(slot); setActiveTab('booking'); }} 
-            sports={globalSports} // 🎯 [이 한 줄만 추가!] 자식 현황판에 마스터 종목 배열을 전달합니다.
+            sports={globalSports}
           />
         )}
         
+        {/* 3. 확인 탭 (기존 Supabase 조회/취소 상태값 완벽 맵핑) */}
         {activeTab === 'check' && (
           <CheckTab 
             myReservations={myReservations} 
@@ -343,6 +344,7 @@ export default function Home() {
           />
         )}
         
+        {/* 4. 위치 탭 */}
         {activeTab === 'map' && <MapSection />}
       </div>
     </main>
