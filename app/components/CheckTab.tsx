@@ -1,239 +1,310 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
+
+interface Reservation {
+  id: number;
+  reservation_date: string;
+  slot_time: string;
+  sport_name: string;
+  user_name: string;
+}
 
 interface CheckTabProps {
-  myReservations: any[];
+  myReservations: Reservation[];
   hasSearched: boolean;
   onSearch: (type: 'name' | 'phone', value: string) => Promise<void>;
   onCancel: (id: number, inputPass: string) => Promise<boolean>;
+  isDarkMode?: boolean;
 }
 
-export default function CheckTab({ 
-  myReservations = [], 
-  hasSearched, 
-  onSearch, 
-  onCancel 
+export default function CheckTab({
+  myReservations,
+  hasSearched,
+  onSearch,
+  onCancel,
+  isDarkMode = false,
 }: CheckTabProps) {
-  const [lookupName, setLookupName] = useState('');
-  const [lookupPass, setLookupPass] = useState('');
-  const [lookupPhoneMid, setLookupPhoneMid] = useState('');
-  const [matchedReservation, setMatchedReservation] = useState<any | null>(null);
+  const [searchType, setSearchType] = useState<'name' | 'phone'>('name');
+  const [searchValue, setSearchValue] = useState('');
+  const [selectedRes, setSelectedRes] = useState<Reservation | null>(null);
+  const [inputPass, setInputPass] = useState('');
+  
+  // 🎯 원페이지 흐름을 제어하기 위해, 사용자가 강제로 '다시 검색'을 누르기 전까지는 
+  // 결과 리스트 뷰를 유지하도록 하는 로컬 스위치 (상위 hasSearched와 유기적 연동)
+  const [isViewingResults, setIsViewingResults] = useState(true);
 
-  // 성명 마스킹 (외자/일반 완벽 대응)
-  const getMaskedName = (rawName: string) => {
-    if (!rawName) return '';
-    const trimmed = rawName.trim();
-    if (trimmed.length <= 1) return trimmed;
-    if (trimmed.length === 2) return trimmed[0] + '*';
-    if (trimmed.length === 3) return trimmed[0] + '*' + trimmed[2];
-    return trimmed[0] + '*'.repeat(trimmed.length - 2) + trimmed[trimmed.length - 1];
-  };
-
-  // 연락처 추출 및 마스킹 헬퍼
-  const getMaskedPhone = (userString: string) => {
-    const match = userString.match(/\((.*?)\)/);
-    if (!match) return '010-****-****';
-    const phone = match[1];
-    const parts = phone.split('-');
-    if (parts.length === 3) return `${parts[0]}-****-${parts[2]}`;
-    return phone;
-  };
-
-  // 🔒 비밀번호 입력 후 Supabase 데이터 기반 실제 내역 조회 검증
-  const handleLookupVerify = async (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!lookupName.trim() || lookupPass.length !== 4) {
-      alert('👤 성함과 🔒 4자리 비밀번호를 정확히 입력해 주세요.');
-      return;
-    }
+    await onSearch(searchType, searchValue);
+    setSelectedRes(null);
+    setIsViewingResults(true); // 검색 성공 시 결과 화면으로 강제 이동
+  };
 
-    // 1단계: Supabase에 등록된 성함 기반 조회 요청 트리거
-    await onSearch('name', lookupName);
-
-    // 2단계: 가져온 대관 리스트 중 유저 포맷 내 문자열 파싱 검증
-    // combined 포맷 구조: 홍길동 (010-1234-5678) [1234] {2명/1코트}
-    const found = myReservations.find(res => {
-      const isNameMatch = res.user_name.split(' (')[0] === lookupName.trim();
-      const isPassMatch = res.user_name.includes(`[${lookupPass}]`);
-      return isNameMatch && isPassMatch;
-    });
-
-    if (found) {
-      setMatchedReservation(found);
-    } else {
-      alert('❌ 일치하는 대관 내역이 없거나 비밀번호가 틀렸습니다.');
+  const handleCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRes) return;
+    const success = await onCancel(selectedRes.id, inputPass);
+    if (success) {
+      setInputPass('');
+      setSelectedRes(null);
     }
   };
 
-  // 💬 카카오톡 / 문자 메시지 알림 서식 공유 엔진
-  const handleShareReservation = async () => {
-    if (!matchedReservation) return;
-
-    // 대관 문자 서식 데이터 파싱
-    const rawName = matchedReservation.user_name.split(' (')[0];
-    const matchHeadCourt = matchedReservation.user_name.match(/\{([\d.]+)명\/([\d.]+)코트\}/);
-    const detailInfo = matchHeadCourt ? ` (${matchHeadCourt[1]}명/${matchHeadCourt[2]}코트)` : '';
-
-    const shareText = `[운암복합문화체육센터 예약 안내]
-- 예약일시 : ${matchedReservation.reservation_date} / ${matchedReservation.slot_time}
-- 성명 : ${getMaskedName(rawName)}
-- 종목 : ${matchedReservation.sport_name}${detailInfo}
-- 비밀번호 : ****
-- 위치 : https://unam-sports.center/map
-
-* 안내 사항
-- 반드시 현장에서 결제 후 입장해주시길 바랍니다.
-- 시설 이용 시 실내화를 착용하시길 바랍니다.`;
-
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: '🏛️ 운암복합문화체육센터 대관 안내',
-          text: shareText,
-        });
-      } catch (err) {
-        console.log('공유 취소:', err);
-      }
-    } else {
-      await navigator.clipboard.writeText(shareText);
-      alert('📋 공유 서식이 클립보드에 복사되었습니다. 카카오톡 창에 붙여넣기(Command+V) 해주세요!');
-    }
+  const parseDisplayInfo = (rawName: string) => {
+    if (!rawName) return { name: '', phone: '', head: '', court: '' };
+    const namePart = rawName.split(' (')[0] || '';
+    const match = rawName.match(/\{([\d.]+)명\/([\d.]+)코트\}/);
+    return {
+      name: namePart,
+      head: match ? match[1] : '1',
+      court: match ? match[2] : '1',
+    };
   };
 
-  // 🛑 가운데 4자리 검증 후 최종 대관 즉시 취소 실행
-  const handleCancelExecute = async () => {
-    if (!matchedReservation) return;
-    
-    const phoneMatch = matchedReservation.user_name.match(/\((.*?)\)/);
-    if (!phoneMatch) return;
-    
-    const realPhone = phoneMatch[1]; // 010-6253-7699 형태 추출
-    const realMidNum = realPhone.split('-')[1]; // 가운데 4자리 추출
-    
-    if (lookupPhoneMid !== realMidNum) {
-      alert('❌ 입력하신 연락처 가운데 4자리 번호가 일치하지 않습니다.');
-      return;
-    }
-
-    if (confirm('🛑 정말로 해당 예약을 취소하고 코트를 반환하시겠습니까?')) {
-      // 🎯 여기서 page.tsx의 handleUserCancel 함수를 호출합니다!
-      const success = await onCancel(matchedReservation.id, lookupPass);
-      if (success) {
-        setMatchedReservation(null);
-        setLookupName('');
-        setLookupPass('');
-        setLookupPhoneMid('');
-      }
-    }
-  };
+  const currentDisplay = selectedRes ? parseDisplayInfo(selectedRes.user_name) : null;
+  
+  // 첫 번째 예약 데이터 기반으로 "OOO 님" 타이틀 추출 유틸
+  const firstResultDisplay = myReservations.length > 0 ? parseDisplayInfo(myReservations[0].user_name) : null;
 
   return (
-    <div className="space-y-4 animate-fadeIn text-black max-w-md mx-auto w-full">
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        <p className="text-sm font-bold text-gray-700 border-b pb-2">🔍 예약 정보 조회 및 확인</p>
+    <div className="w-full max-w-md mx-auto py-12 md:py-16 space-y-8 transition-all duration-300 ease-in-out">
+      
+      {/* 🧭 상단 원페이지 네비게이션 가이드 바 */}
+      {hasSearched && isViewingResults && (
+        <div className={`rounded-2xl p-3 flex items-center justify-between text-xs font-semibold animate-fade-in shadow-sm transition-colors ${
+          isDarkMode ? 'bg-[#22222a]' : 'bg-slate-100/60'
+        }`}>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedRes) {
+                // 상세 보기 중이었다면 -> 다시 리스트 목록 화면으로 1단계 복귀
+                setSelectedRes(null);
+              } else {
+                // 리스트 목록 화면이었다면 -> 처음 검색창 입력 화면으로 복귀
+                setIsViewingResults(false);
+                setSearchValue('');
+              }
+            }}
+            className={`transition-colors font-bold px-2 ${
+              isDarkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            ← {selectedRes ? '목록으로' : '다시 조회하기'}
+          </button>
+        </div>
+      )}
 
-        {/* 1단계: 이름 및 비밀번호 조회 입력 폼 */}
-        {!matchedReservation ? (
-          <form onSubmit={handleLookupVerify} className="space-y-3">
-            <p className="text-xs font-medium text-gray-500 leading-relaxed">
-              대관 신청 시 등록했던 <span className="font-bold text-blue-600">예약자 성함</span>과 <span className="font-bold text-blue-600">[4자리 비밀번호]</span>를 입력하시면 확인 및 취소가 가능합니다.
-            </p>
-            <div className="space-y-2">
-              <input
-                type="text"
-                required
-                placeholder="예약자 성함 (예: 홍길동)"
-                value={lookupName}
-                onChange={(e) => setLookupName(e.target.value)}
-                className="w-full border rounded-xl px-3 py-2 text-sm bg-white focus:border-blue-500 focus:outline-none"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  maxLength={4}
-                  required
-                  placeholder="비밀번호 4자리"
-                  value={lookupPass}
-                  onChange={(e) => setLookupPass(e.target.value.replace(/[^0-9]/g, ''))}
-                  className="flex-1 border rounded-xl px-3 py-2 text-sm text-center font-mono bg-white focus:border-blue-500 focus:outline-none"
-                />
-                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 rounded-xl transition-all">
-                  조회하기
-                </button>
-              </div>
+      {/* 📊 토스 스타일 문장형 볼드 헤더 (현재 진행 단계를 텍스트로만 명확히 명시) */}
+      <div className="space-y-2 px-1">
+        <span className="text-[10px] font-extrabold text-blue-600 tracking-wider uppercase font-mono">RESERVATION CHECK</span>
+        <h2 className={`text-xl font-black tracking-tight leading-snug transition-colors whitespace-pre-line ${
+          isDarkMode ? 'text-slate-100' : 'text-slate-900'
+        }`}>
+          {selectedRes && currentDisplay
+            ? `${currentDisplay.name} 님의\n상세 예약 내역입니다`
+            : hasSearched && isViewingResults && firstResultDisplay
+              ? `${firstResultDisplay.name} 님의\n예약 목록을 찾았어요`
+              : '어떤 정보로\n예약을 조회할까요?'}
+        </h2>
+      </div>
+
+      {/* 1️⃣ STEP 1: 조회용 입력창 화면 (아직 검색 안 했거나, '다시 조회'를 눌렀을 때만 노출) */}
+      {(!hasSearched || !isViewingResults) && !selectedRes && (
+        <form onSubmit={handleSearchSubmit} className="space-y-4 animate-fade-in">
+          <div className={`p-5 rounded-2xl border transition-colors shadow-sm ${
+            isDarkMode ? 'bg-[#22222a] border-slate-800' : 'bg-white border-slate-200/60'
+          }`}>
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setSearchType('name')}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all shadow-sm ${
+                  searchType === 'name'
+                    ? 'bg-blue-600 text-white font-extrabold'
+                    : isDarkMode ? 'bg-[#1d1d24] text-slate-400' : 'bg-slate-50 text-slate-500'
+                }`}
+              >
+                이름으로 검색
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchType('phone')}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all shadow-sm ${
+                  searchType === 'phone'
+                    ? 'bg-blue-600 text-white font-extrabold'
+                    : isDarkMode ? 'bg-[#1d1d24] text-slate-400' : 'bg-slate-50 text-slate-500'
+                }`}
+              >
+                전화번호 검색
+              </button>
             </div>
-          </form>
-        ) : (
-          /* 2단계: 인증 성공 시 나타나는 정보 확인 및 취소 패널 */
-          <div className="space-y-4">
-            
-            {/* 📝 깔끔하게 정돈된 오피셜 예약 안내 서식 명세서 */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-gray-200 text-xs font-mono text-gray-800 space-y-2 leading-relaxed">
-              <p className="font-bold text-gray-800 text-sm mb-1">[운암복합문화체육센터 예약 안내]</p>
-              <div>- 예약일시 : {matchedReservation.reservation_date} ({matchedReservation.slot_time})</div>
-              <div>- 성명 : {getMaskedName(matchedReservation.user_name.split(' (')[0])}</div>
-              <div>- 종목 : {matchedReservation.sport_name}</div>
-              <div>- 위치 : <span className="text-blue-500 underline">https://gbfmc.or.kr/menu.es?mid=a10401080000</span></div>
-              
-              <div className="border-t border-dashed my-2 pt-2 text-gray-500 space-y-0.5">
-                <p className="font-bold text-gray-700">* 안내 사항</p>
-                <p>- 반드시 현장에서 결제하고 입장</p>
-                <p>- 실내화 필수</p>
-              </div>
-            </div>
 
-            {/* 💬 내이티브 카톡 / 문자 정보 공유 기능 */}
-            <button
-              type="button"
-              onClick={handleShareReservation}
-              className="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-black py-2.5 rounded-xl transition-all shadow flex items-center justify-center gap-1.5"
-            >
-              💬 예약 정보 공유하기
-            </button>
+            <input
+              type="text"
+              autoFocus
+              placeholder={searchType === 'name' ? '예약자 성함을 입력하세요' : '전화번호 뒷자리를 입력하세요'}
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              className={`w-full border-b-2 px-1 py-3 text-sm font-semibold focus:outline-none bg-transparent transition-colors ${
+                isDarkMode 
+                  ? 'border-slate-800 focus:border-blue-500 text-slate-100 placeholder-slate-600' 
+                  : 'border-slate-200 focus:border-blue-600 text-slate-800 placeholder-slate-400'
+              }`}
+            />
+          </div>
 
-            {/* 🛑 가운데 4자리 입력 방식 취소 엔진 */}
-            <div className="bg-red-50/60 p-3.5 rounded-xl border border-red-200 space-y-2">
-              <div className="text-[11px] font-bold text-red-700 flex items-center gap-1">
-                <span>🛑</span> 대관 비대면 취소 검증선
-              </div>
-              <p className="text-[10px] text-gray-500 leading-normal">
-                예약 취소를 위해 본인 연락처의 <span className="font-bold text-red-600">[중간 번호 4자리]</span>를 입력해 주세요.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  maxLength={4}
-                  placeholder="4자리"
-                  value={lookupPhoneMid}
-                  onChange={(e) => setLookupPhoneMid(e.target.value.replace(/[^0-9]/g, ''))}
-                  className="w-28 border border-red-200 rounded-lg px-2.5 py-1.5 text-xs text-center font-mono text-red-600 bg-white focus:border-red-500 focus:outline-none"
-                />
+          <button
+            type="submit"
+            disabled={!searchValue.trim()}
+            className={`w-full font-extrabold text-xs py-4 rounded-2xl transition-all shadow-md duration-150 ${
+              searchValue.trim()
+                ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-[0.98] shadow-blue-600/10'
+                : isDarkMode ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            예약 조회하기
+          </button>
+        </form>
+      )}
+
+      {/* 2️⃣ STEP 2: 검색 완료 후 매칭 리스트 화면 (상세 보기가 안 켜졌을 때만 노출) */}
+      {hasSearched && isViewingResults && !selectedRes && (
+        <div className="space-y-3 animate-slide-up px-1">
+          <p className={`text-[11px] font-bold transition-colors ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+            조회된 예약 중 확인할 일정을 선택해 주세요 (총 {myReservations.length}건)
+          </p>
+          <div className="space-y-2">
+            {myReservations.length === 0 ? (
+              <div className="text-center py-12 space-y-4">
+                <p className={`text-xs font-medium ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  조회된 대관 내역이 없습니다. 정보를 다시 확인해 주세요. 🔍
+                </p>
                 <button
                   type="button"
-                  onClick={handleCancelExecute}
-                  className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-all"
+                  onClick={() => { setIsViewingResults(false); setSearchValue(''); }}
+                  className="inline-block text-[11px] text-blue-500 font-extrabold border-b border-blue-500/40 pb-0.5"
                 >
-                  취소
+                  돌아가서 다시 입력하기
                 </button>
               </div>
+            ) : (
+              myReservations.map((res) => (
+                <button
+                  key={res.id}
+                  type="button"
+                  onClick={() => setSelectedRes(res)}
+                  className={`w-full px-5 py-4 rounded-2xl border text-left transition-all flex items-center justify-between group shadow-sm duration-150 active:scale-[0.995] ${
+                    isDarkMode 
+                      ? 'bg-[#22222a] border-slate-800/80 text-slate-200 hover:border-blue-500' 
+                      : 'bg-white border-slate-200 text-slate-800 hover:border-blue-600'
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-mono font-extrabold tracking-tight">
+                      {res.reservation_date}
+                    </span>
+                    <p className={`text-[11px] font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      시작 시간: {res.slot_time.slice(0, 5)}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {res.sport_name}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3️⃣ STEP 3: 최종 한 명의 예약 영수증 상세 명세 및 취소 패널 */}
+      {selectedRes && currentDisplay && (
+        <div className="space-y-5 animate-slide-up">
+          
+          {/* 카드 1: 영수증 세부 품목 피드 */}
+          <div className={`p-6 rounded-2xl border transition-colors shadow-sm space-y-4 ${
+            isDarkMode ? 'bg-[#22222a] border-slate-800' : 'bg-white border-slate-200/60'
+          }`}>
+            <div className="flex justify-between items-center border-b pb-3 transition-colors border-slate-100 dark:border-slate-800/60">
+              <h3 className={`text-sm font-black tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>확인된 대관 티켓</h3>
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
+                isDarkMode ? 'bg-blue-950/40 text-blue-400' : 'bg-blue-50 text-blue-600'
+              }`}>
+                조회 매칭 완료
+              </span>
+            </div>
+            
+            <div className="space-y-2.5 text-xs font-medium">
+              <div className="flex justify-between">
+                <span className="text-slate-400">예약한 시간</span>
+                <span className={`font-mono font-extrabold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{selectedRes.reservation_date} ({selectedRes.slot_time.slice(0, 5)})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">예약한 사람</span>
+                <span className={`font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{currentDisplay.name} 님</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">예약한 종목</span>
+                <span className="font-extrabold text-blue-500">{selectedRes.sport_name}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2.5 transition-colors border-slate-100 dark:border-slate-800/60">
+                <span className="text-slate-400">이용 자원 명세</span>
+                <span className={`font-extrabold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{currentDisplay.head}명 / {currentDisplay.court}코트</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 정보 공유 인터렉티브 버튼 */}
+          <button
+            type="button"
+            onClick={() => alert('카카오톡 공유 API가 활성화됩니다. 🚀')}
+            className="w-full bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs py-4 rounded-2xl transition-all shadow-md shadow-amber-500/10 active:scale-[0.98]"
+          >
+            내 예약 정보 공유하기
+          </button>
+
+          {/* 카드 2: 취소 보안 레일 패널 */}
+          <form onSubmit={handleCancelSubmit} className={`p-6 rounded-2xl border transition-colors shadow-sm space-y-4 ${
+            isDarkMode ? 'bg-[#22222a] border-slate-800' : 'bg-white border-slate-200/60'
+          }`}>
+            <div className="space-y-1">
+              <h3 className="text-xs font-black text-rose-500">이 예약을 취소할까요?</h3>
+              <p className="text-[10px] text-slate-400 font-medium">본인 확인을 위해 예약 당시 설정한 비밀번호 4자리를 입력해 주세요.</p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setMatchedReservation(null);
-                setLookupName('');
-                setLookupPass('');
-                setLookupPhoneMid('');
-              }}
-              className="w-full text-xs text-gray-500 bg-gray-100 hover:bg-gray-200 py-2 rounded-xl text-center font-bold"
-            >
-              뒤로가기
-            </button>
-          </div>
-        )}
-      </div>
+            <div className="flex gap-2 pt-1">
+              <input
+                type="password"
+                maxLength={4}
+                placeholder="비밀번호 4자리"
+                value={inputPass}
+                onChange={(e) => setInputPass(e.target.value.replace(/[^0-9]/g, ''))}
+                className={`flex-1 border-b-2 px-1 py-2 text-center text-xs font-mono font-bold tracking-widest focus:outline-none bg-transparent transition-colors ${
+                  isDarkMode 
+                    ? 'border-slate-800 focus:border-blue-500 text-slate-100 placeholder-slate-700' 
+                    : 'border-slate-200 focus:border-blue-600 text-slate-800 placeholder-slate-300'
+                }`}
+              />
+              <button
+                type="submit"
+                disabled={inputPass.length !== 4}
+                className={`px-5 py-3 rounded-xl text-[11px] font-extrabold transition-all shrink-0 shadow-sm ${
+                  inputPass.length === 4
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white active:scale-[0.96]'
+                    : isDarkMode ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                예약 취소하기
+              </button>
+            </div>
+          </form>
+
+        </div>
+      )}
     </div>
   );
 }

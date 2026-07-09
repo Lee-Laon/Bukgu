@@ -5,11 +5,25 @@
   --foreground: #171717;
 }
 
-@theme inline {
+/* 🎯 Tailwind v4 공식 정규 테마 확장 명세 */
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  
+  /* 🚀 테일윈드 v4 스타일로 애니메이션과 키프레임을 변수로 정밀 매핑합니다 */
+  --animate-slide-up: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-fade-in: fadeIn 0.25s ease-out forwards;
+
+  @keyframes slideUp {
+    0% { opacity: 0; transform: translateY(12px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
 }
 
 @media (prefers-color-scheme: dark) {
