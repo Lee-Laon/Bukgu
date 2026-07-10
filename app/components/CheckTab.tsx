@@ -30,15 +30,13 @@ export default function CheckTab({
   const [selectedRes, setSelectedRes] = useState<Reservation | null>(null);
   const [inputPass, setInputPass] = useState('');
   
-  // 🎯 원페이지 흐름을 제어하기 위해, 사용자가 강제로 '다시 검색'을 누르기 전까지는 
-  // 결과 리스트 뷰를 유지하도록 하는 로컬 스위치 (상위 hasSearched와 유기적 연동)
   const [isViewingResults, setIsViewingResults] = useState(true);
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await onSearch(searchType, searchValue);
     setSelectedRes(null);
-    setIsViewingResults(true); // 검색 성공 시 결과 화면으로 강제 이동
+    setIsViewingResults(true); 
   };
 
   const handleCancelSubmit = async (e: React.FormEvent) => {
@@ -51,26 +49,62 @@ export default function CheckTab({
     }
   };
 
+  // user_name 컬럼에 조합된 [비밀번호] 및 명세 파싱 유틸
   const parseDisplayInfo = (rawName: string) => {
-    if (!rawName) return { name: '', phone: '', head: '', court: '' };
+    if (!rawName) return { name: '', phone: '', password: '', head: '', court: '' };
     const namePart = rawName.split(' (')[0] || '';
-    const match = rawName.match(/\{([\d.]+)명\/([\d.]+)코트\}/);
+    
+    // 비밀번호 추출 구문 추가
+    const passMatch = rawName.match(/\[(.*?)\]/);
+    const specMatch = rawName.match(/\{([\d.]+)명\/([\d.]+)코트\}/);
+    
     return {
       name: namePart,
-      head: match ? match[1] : '1',
-      court: match ? match[2] : '1',
+      password: passMatch ? passMatch[1] : '****',
+      head: specMatch ? specMatch[1] : '1',
+      court: specMatch ? specMatch[2] : '1',
     };
   };
 
+  // 🎯 문자 메시지(SMS) 내보내기 핸들러 추가
+  const handleShareViaSMS = () => {
+    if (!selectedRes) return;
+    const details = parseDisplayInfo(selectedRes.user_name);
+    
+    // 💌 활기차면서도 예의 바른 공식 예약 알림 문자 본문 구성
+    const smsBody = `[운암복합문화체육센터]
+
+✨ 주민의 건강한 일상 파트너! ✨
+운암복합문화체육센터 시설 예약이 정보를 알려드립니다!
+
+📅 예약 일정 : ${selectedRes.reservation_date}
+⏰ 예약 시간 : ${selectedRes.slot_time.slice(0, 5)}
+👤 예약자 성함 : ${details.name} 님
+🏸 예약 종목 : ${selectedRes.sport_name} (${details.court}코트 / ${details.head}명)
+🔐 비밀번호 : ${details.password}
+
+💡 이용 시 주의사항
+- 깨끗하고 안전한 시설 관리를 위해 실내 운동화를 꼭 지참해 주세요!
+- 다른 주민분들의 원활한 이용을 위해, 불가피한 사정으로 사용이 어려우실 경우 반드시 예약을 사전에 취소해 주시는 배려를 부탁드립니다!
+
+오늘도 활기차고 건강한 하루 보내세요! 감동을 드리는 운암복합문화체육센터 드림`;
+
+    // 📱 기기별 웹 표준 SMS 공유 링크 작동 처리 (공백 및 특수문자 인코딩)
+    const encodedBody = encodeURIComponent(smsBody);
+    
+    // iOS/macOS 환경과 안드로이드 환경에 맞는 구분자 분기 처리
+    const isApple = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const smsUrl = isApple ? `sms:&body=${encodedBody}` : `sms:?body=${encodedBody}`;
+    
+    window.location.href = smsUrl;
+  };
+
   const currentDisplay = selectedRes ? parseDisplayInfo(selectedRes.user_name) : null;
-  
-  // 첫 번째 예약 데이터 기반으로 "OOO 님" 타이틀 추출 유틸
   const firstResultDisplay = myReservations.length > 0 ? parseDisplayInfo(myReservations[0].user_name) : null;
 
   return (
-    <div className="w-full max-w-md mx-auto py-12 md:py-16 space-y-8 transition-all duration-300 ease-in-out">
+    <div className="w-full max-w-md mx-auto py-12 md:py-16 space-y-8 transition-all duration-300 ease-out">
       
-      {/* 🧭 상단 원페이지 네비게이션 가이드 바 */}
       {hasSearched && isViewingResults && (
         <div className={`rounded-2xl p-3 flex items-center justify-between text-xs font-semibold animate-fade-in shadow-sm transition-colors ${
           isDarkMode ? 'bg-[#22222a]' : 'bg-slate-100/60'
@@ -79,10 +113,8 @@ export default function CheckTab({
             type="button"
             onClick={() => {
               if (selectedRes) {
-                // 상세 보기 중이었다면 -> 다시 리스트 목록 화면으로 1단계 복귀
                 setSelectedRes(null);
               } else {
-                // 리스트 목록 화면이었다면 -> 처음 검색창 입력 화면으로 복귀
                 setIsViewingResults(false);
                 setSearchValue('');
               }
@@ -96,7 +128,6 @@ export default function CheckTab({
         </div>
       )}
 
-      {/* 📊 토스 스타일 문장형 볼드 헤더 (현재 진행 단계를 텍스트로만 명확히 명시) */}
       <div className="space-y-2 px-1">
         <span className="text-[10px] font-extrabold text-blue-600 tracking-wider uppercase font-mono">RESERVATION CHECK</span>
         <h2 className={`text-xl font-black tracking-tight leading-snug transition-colors whitespace-pre-line ${
@@ -110,7 +141,6 @@ export default function CheckTab({
         </h2>
       </div>
 
-      {/* 1️⃣ STEP 1: 조회용 입력창 화면 (아직 검색 안 했거나, '다시 조회'를 눌렀을 때만 노출) */}
       {(!hasSearched || !isViewingResults) && !selectedRes && (
         <form onSubmit={handleSearchSubmit} className="space-y-4 animate-fade-in">
           <div className={`p-5 rounded-2xl border transition-colors shadow-sm ${
@@ -169,7 +199,6 @@ export default function CheckTab({
         </form>
       )}
 
-      {/* 2️⃣ STEP 2: 검색 완료 후 매칭 리스트 화면 (상세 보기가 안 켜졌을 때만 노출) */}
       {hasSearched && isViewingResults && !selectedRes && (
         <div className="space-y-3 animate-slide-up px-1">
           <p className={`text-[11px] font-bold transition-colors ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
@@ -221,11 +250,9 @@ export default function CheckTab({
         </div>
       )}
 
-      {/* 3️⃣ STEP 3: 최종 한 명의 예약 영수증 상세 명세 및 취소 패널 */}
       {selectedRes && currentDisplay && (
         <div className="space-y-5 animate-slide-up">
           
-          {/* 카드 1: 영수증 세부 품목 피드 */}
           <div className={`p-6 rounded-2xl border transition-colors shadow-sm space-y-4 ${
             isDarkMode ? 'bg-[#22222a] border-slate-800' : 'bg-white border-slate-200/60'
           }`}>
@@ -258,16 +285,15 @@ export default function CheckTab({
             </div>
           </div>
 
-          {/* 정보 공유 인터렉티브 버튼 */}
+          {/* 🎯 [대개정] 카카오톡 대신 예의 바르고 활기찬 문장 포맷의 SMS 내보내기 연동 */}
           <button
             type="button"
-            onClick={() => alert('카카오톡 공유 API가 활성화됩니다. 🚀')}
-            className="w-full bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs py-4 rounded-2xl transition-all shadow-md shadow-amber-500/10 active:scale-[0.98]"
+            onClick={handleShareViaSMS}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-4 rounded-2xl transition-all shadow-md shadow-blue-500/10 active:scale-[0.98] flex items-center justify-center gap-1.5"
           >
-            내 예약 정보 공유하기
+            <span>💬</span> 예약 정보 문자(SMS)로 공유하기
           </button>
 
-          {/* 카드 2: 취소 보안 레일 패널 */}
           <form onSubmit={handleCancelSubmit} className={`p-6 rounded-2xl border transition-colors shadow-sm space-y-4 ${
             isDarkMode ? 'bg-[#22222a] border-slate-800' : 'bg-white border-slate-200/60'
           }`}>

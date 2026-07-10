@@ -30,9 +30,7 @@ interface BookingTabProps {
     pass: string, 
     headCount: number, 
     courtCount: number
-  ) => Promise<void>;
-  resultMessage: { success: boolean; message: string } | null;
-  setResultMessage: (msg: { success: boolean; message: string } | null) => void;
+  ) => Promise<boolean>;
   selectedSlot: any | null;
   setSelectedSlot: (slot: any | null) => void;
   isDarkMode?: boolean;
@@ -46,8 +44,6 @@ export default function BookingTab({
   getTimeLockStatus,
   getSlotStatusInfo,
   onReservationSubmit,
-  resultMessage,
-  setResultMessage,
   selectedSlot,
   setSelectedSlot,
   isDarkMode = false,
@@ -61,30 +57,25 @@ export default function BookingTab({
   const [headCount, setHeadCount] = useState(1);
   const [courtCount, setCourtCount] = useState<number>(1);
 
-  useEffect(() => {
-    if (resultMessage) {
-      if (resultMessage.success) {
-        alert(resultMessage.message);
-        setUserName('');
-        setUserPhone('');
-        setUserPass('');
-        setHeadCount(1);
-        setCourtCount(1);
-        setSelectedSlot(null);
-        setResultMessage(null);
-        setStep('SLOT'); 
-      } else {
-        alert(`예약 실패 안내: ${resultMessage.message}`);
-        setResultMessage(null);
-      }
+  const triggerHaptic = () => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(12);
     }
-  }, [resultMessage, setSelectedSlot, setResultMessage]);
+  };
 
+  // 🎯 부모에 의해 selectedSlot이 비워지는 시점('확인 완료' 클릭 시) 폼 상태와 단계를 원격 리셋
   useEffect(() => {
     if (selectedSlot) {
-      setSelectedSport(''); 
-      setStep('SPORT');
+      if (step === 'SLOT') {
+        setSelectedSport(''); 
+        setStep('SPORT');
+      }
     } else {
+      setUserName('');
+      setUserPhone('');
+      setUserPass('');
+      setHeadCount(1);
+      setCourtCount(1);
       setStep('SLOT');
     }
   }, [selectedSlot]);
@@ -112,13 +103,17 @@ export default function BookingTab({
   };
 
   const adjustHeadCount = (amount: number) => {
+    triggerHaptic();
     setHeadCount(prev => Math.max(1, Math.min(30, prev + amount)));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // 🎯 Submit 핸들러에서 직접 비동기 성공 처리를 체이닝하여 오차를 제로화함
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSlot) return;
-    onReservationSubmit(
+    triggerHaptic();
+    
+    await onReservationSubmit(
       selectedSlot,
       selectedSport,
       userName,
@@ -141,8 +136,8 @@ export default function BookingTab({
         <div className="flex justify-center w-full">
           <button
             type="button"
-            onClick={() => setCourtCount(0.5)}
-            className={`w-full max-w-[120px] py-3.5 rounded-2xl border text-xs font-mono font-extrabold transition-all shadow-sm ${
+            onClick={() => { triggerHaptic(); setCourtCount(0.5); }}
+            className={`w-full max-w-[120px] py-3.5 rounded-2xl border text-xs font-mono font-extrabold transition-all shadow-sm active:scale-[0.95] ${
               isDarkMode
                 ? 'border-blue-500 bg-blue-950/40 text-blue-400 ring-2 ring-blue-500/20'
                 : 'border-blue-600 bg-blue-50 text-blue-700 ring-2 ring-blue-600/10'
@@ -170,7 +165,7 @@ export default function BookingTab({
           <button
             key={val}
             type="button"
-            onClick={() => setCourtCount(val)}
+            onClick={() => { triggerHaptic(); setCourtCount(val); }}
             className={`py-3.5 rounded-2xl border text-xs font-mono font-extrabold transition-all duration-150 active:scale-[0.94] shadow-sm ${
               courtCount === val
                 ? isDarkMode
@@ -202,13 +197,14 @@ export default function BookingTab({
           <button
             type="button"
             onClick={() => {
+              triggerHaptic();
               if (step === 'SPORT') { setSelectedSlot(null); setStep('SLOT'); }
               else if (step === 'NAME') setStep('SPORT');
               else if (step === 'PASS') setStep('NAME');
               else if (step === 'PHONE') setStep('PASS');
               else if (step === 'FINAL') setStep('PHONE');
             }}
-            className={`transition-colors font-bold px-2 ${
+            className={`transition-colors font-bold px-2 active:scale-95 ${
               isDarkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -254,12 +250,11 @@ export default function BookingTab({
               const availableCourts = status.remainingCourts; 
               const isFullOrEmpty = status.isFull || availableCourts === 0;
               
-              // 🎯 [우선순위 대개정 가드] 코트가 가득 찼다면 시간 임박 여부를 무시하고 무조건 마감으로 잠금 처리!
               const isAvailable = !isFullOrEmpty && lockStatus === 'none';
 
               let btnStyle = isDarkMode
-                ? "bg-[#22222a] border-slate-800/80 text-slate-200 hover:border-blue-500"
-                : "bg-white border-slate-200/80 text-slate-800 hover:border-blue-600 hover:shadow-md hover:shadow-blue-600/5";
+                ? "bg-[#22222a] border-slate-800/80 text-slate-200 hover:border-blue-500 active:scale-[0.99]"
+                : "bg-white border-slate-200/80 text-slate-800 hover:border-blue-600 hover:shadow-md hover:shadow-blue-600/5 active:scale-[0.99]";
                 
               let badge = (
                 <div className="text-right space-y-0.5">
@@ -276,7 +271,6 @@ export default function BookingTab({
                 </div>
               );
 
-              // 🎯 해결 포인트 분기레일 분배: 코트 부족 마감을 최상단으로 유도
               if (isFullOrEmpty) {
                 btnStyle = isDarkMode
                   ? "bg-[#1d1d24] border-slate-900 text-slate-600 cursor-not-allowed"
@@ -298,8 +292,8 @@ export default function BookingTab({
                 <button
                   key={slot.id}
                   disabled={!isAvailable}
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`w-full px-5 py-4 rounded-2xl border text-left transition-all flex items-center justify-between group active:scale-[0.995] duration-200 shadow-sm ${btnStyle}`}
+                  onClick={() => { triggerHaptic(); setSelectedSlot(slot); }}
+                  className={`w-full px-5 py-4 rounded-2xl border text-left transition-all flex items-center justify-between group duration-200 shadow-sm ${btnStyle}`}
                 >
                   <div>
                     <span className={`font-mono font-extrabold text-xs transition-colors ${
@@ -340,6 +334,7 @@ export default function BookingTab({
                   key={sp}
                   type="button"
                   onClick={() => {
+                    triggerHaptic();
                     setSelectedSport(sp);
                     setStep('NAME');
                   }}
@@ -383,7 +378,7 @@ export default function BookingTab({
             <button
               type="button"
               disabled={!userName.trim()}
-              onClick={() => setStep('PASS')}
+              onClick={() => { triggerHaptic(); setStep('PASS'); }}
               className={`w-full text-xs font-extrabold py-4 rounded-2xl transition-all shadow-sm duration-150 ${
                 userName.trim() 
                   ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-[0.98]' 
@@ -424,7 +419,7 @@ export default function BookingTab({
             <button
               type="button"
               disabled={userPass.length !== 4}
-              onClick={() => setStep('PHONE')}
+              onClick={() => { triggerHaptic(); setStep('PHONE'); }}
               className={`w-full text-xs font-extrabold py-4 rounded-2xl transition-all shadow-sm duration-150 ${
                 userPass.length === 4 
                   ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-[0.98]' 
@@ -445,7 +440,7 @@ export default function BookingTab({
           <div className="space-y-2 px-1">
             <span className="text-[10px] font-extrabold text-blue-600 tracking-wider uppercase font-mono">BOOKING TICKET</span>
             <h2 className={`text-xl font-black tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-              안내 문자를 수신할 연락처를 남겨주세요.
+              예약하신 분의 연락처를 남겨주세요.
             </h2>
           </div>
           <div className="space-y-4 pt-2">
@@ -465,7 +460,7 @@ export default function BookingTab({
             <button
               type="button"
               disabled={userPhone.length < 12}
-              onClick={() => setStep('FINAL')}
+              onClick={() => { triggerHaptic(); setStep('FINAL'); }}
               className={`w-full text-xs font-extrabold py-4 rounded-2xl transition-all shadow-sm duration-150 ${
                 userPhone.length >= 12 
                   ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-[0.98]' 
@@ -499,7 +494,7 @@ export default function BookingTab({
                 <button
                   type="button"
                   onClick={() => adjustHeadCount(-1)}
-                  className={`w-12 h-full font-bold transition-colors text-base ${
+                  className={`w-12 h-full font-bold transition-colors text-base active:scale-95 ${
                     isDarkMode ? 'text-slate-400 hover:bg-slate-800 active:bg-slate-700' : 'text-slate-500 hover:bg-slate-50 active:bg-slate-100'
                   }`}
                 >
@@ -511,7 +506,7 @@ export default function BookingTab({
                 <button
                   type="button"
                   onClick={() => adjustHeadCount(1)}
-                  className={`w-12 h-full font-bold transition-colors text-base ${
+                  className={`w-12 h-full font-bold transition-colors text-base active:scale-95 ${
                     isDarkMode ? 'text-slate-400 hover:bg-slate-800 active:bg-slate-700' : 'text-slate-500 hover:bg-slate-50 active:bg-slate-100'
                   }`}
                 >
