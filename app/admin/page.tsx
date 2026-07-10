@@ -26,7 +26,7 @@ export default function AdminPage() {
   const [dynamicTimeConfigs, setDynamicTimeConfigs] = useState<any[]>([]);
   const [blockingRules, setBlockingRules] = useState<any[]>([]);
 
-  // 🎯 [신규] 관리자 백오피스 전체에서 공유할 운동 종목 마스터 상태
+  // 🎯 관리자 백오피스 전체에서 공유할 운동 종목 마스터 상태
   const [globalSports, setGlobalSports] = useState<string[]>(['배드민턴', '피클볼', '농구']);
 
   // 헬퍼: 날짜 좌우 이동 버튼용
@@ -54,7 +54,7 @@ export default function AdminPage() {
     if (data) setBlockingRules(data);
   };
 
-  // 🎯 [신규 함수] DB에서 실시간 전역 운영 종목 명단 패치
+  // 🎯 DB에서 실시간 전역 운영 종목 명단 패치
   const fetchMasterSports = async () => {
     const { data } = await supabase.from('sports_master').select('sport_name').order('id', { ascending: true });
     if (data) {
@@ -72,7 +72,7 @@ export default function AdminPage() {
     fetchReservations(selectedDate);
     fetchTimeConfigs(calculatedDay);
     fetchBlockingRules();
-    fetchMasterSports(); // 🎯 규칙 최초 로드 시 마스터 종목 동시 패치
+    fetchMasterSports(); 
 
     const channelRes = supabase.channel('admin-res-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations', filter: `reservation_date=eq.${selectedDate}` }, () => { fetchReservations(selectedDate); })
@@ -86,7 +86,6 @@ export default function AdminPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'blocking_rules' }, () => { fetchBlockingRules(); })
       .subscribe();
 
-    // 🔄 [신규] 종목 마스터 보드 변동 건에 대한 실시간 웹소켓 구독 감지 추가
     const channelSports = supabase.channel('admin-sports-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sports_master' }, () => { fetchMasterSports(); })
       .subscribe();
@@ -100,7 +99,7 @@ export default function AdminPage() {
       supabase.removeChannel(channelRes);
       supabase.removeChannel(channelConfig);
       supabase.removeChannel(channelBlocking);
-      supabase.removeChannel(channelSports); // 🔄 채널 해제 규칙 추가
+      supabase.removeChannel(channelSports); 
       clearInterval(backupTimer);
     };
   }, [selectedDate, dayOfWeek]);
@@ -110,6 +109,9 @@ export default function AdminPage() {
     return selectedDate >= rule.start_date && selectedDate <= rule.end_date;
   });
 
+  /**
+   * 🎯 [운영 로직 엔진 통합] 이용자 페이지와 100% 싱크로율을 이루는 상호 배제 필터링 시스템
+   */
   const getSlotStatusInfo = (startTime: string) => {
     if (activeBlockingRule) {
       return { allocatedCourts: 0, remainingCourts: 0, isFull: true, activeSports: [], isSportLimitReached: true, allowedSports: [] };
@@ -120,12 +122,28 @@ export default function AdminPage() {
       return sum + (match ? parseFloat(match[2]) : 1);
     }, 0);
 
-    const activeSports = Array.from(new Set(slotReservations.map((res) => res.sport_name)));
+    // 현재 타임슬롯에 이미 차 있는 고유 종목 배열 스캔
+    const activeSports = Array.from(new Set(slotReservations.map((res) => res.sport_name as string)));
     const currentSlotConfig = dynamicTimeConfigs.find(s => s.start_time === startTime);
     const maxCourts = currentSlotConfig ? parseFloat(currentSlotConfig.max_courts) : 3; 
 
+    // 기본 가용 종목 리스트 셋업
+    let allowedSports = currentSlotConfig?.allowed_sports 
+      ? currentSlotConfig.allowed_sports 
+      : ['배드민턴', '피클볼', '농구'];
+
+    // 🔥 [CASE 1 공식 연동] 이미 2가지 이상의 종목이 코트를 차지하고 있다면 제3의 종목 전면 거부
+    if (activeSports.length >= 2) {
+      allowedSports = allowedSports.filter((sport: string) => activeSports.includes(sport));
+    }
+
     return {
-      allocatedCourts, remainingCourts: maxCourts - allocatedCourts, isFull: allocatedCourts >= maxCourts, activeSports, isSportLimitReached: activeSports.length >= 2, allowedSports: currentSlotConfig ? currentSlotConfig.allowed_sports : undefined
+      allocatedCourts, 
+      remainingCourts: maxCourts - allocatedCourts, 
+      isFull: allocatedCourts >= maxCourts, 
+      activeSports, 
+      isSportLimitReached: activeSports.length >= 2, 
+      allowedSports
     };
   };
 
@@ -146,74 +164,107 @@ export default function AdminPage() {
     fetchReservations(selectedDate);
   };
 
-  const adaptedTimeSlots = dynamicTimeConfigs.map(c => ({
-    id: c.id, name: c.slot_name, startTime: c.start_time, allowedSports: c.allowed_sports
-  }));
+  const adaptedTimeSlots = dynamicTimeConfigs.map(c => {
+    const statusInfo = getSlotStatusInfo(c.start_time);
+    return {
+      id: c.id, 
+      name: c.slot_name, 
+      startTime: c.start_time, 
+      allowedSports: statusInfo.allowedSports // 필터링 공식이 주입된 정제 배열 위임
+    };
+  });
 
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen bg-slate-950 p-6 text-white">
+    <main className="flex flex-col items-center justify-center min-h-screen bg-slate-950 p-6 text-white transition-colors duration-500">
       <div className="max-w-2xl w-full space-y-5">
         
         {/* 헤더 */}
         <div className="flex justify-between items-center border-b border-slate-800 pb-4">
           <div className="space-y-1">
-            <h1 className="text-xl font-bold text-slate-200">🏛️ 운암복합문화체육센터 백오피스</h1>
-            <p className="text-[11px] text-slate-500 font-medium">실시간 현황 관측일: {selectedDate} ({dayOfWeek})</p>
+            <h1 className="text-xl font-bold text-slate-200 tracking-tight">운암복합문화체육센터 관리자 페이지</h1>
+            <p className="text-[11px] text-slate-500 font-semibold font-mono">현재 통제 가동일: {selectedDate} ({dayOfWeek}요일)</p>
           </div>
-          <span className="bg-red-500/20 text-red-400 text-xs px-2.5 py-1 rounded-full font-bold border border-red-500/30">데스크 마스터</span>
+          <span className="bg-red-500/10 text-red-400 text-xs px-3 py-1 rounded-full font-black border border-red-500/20 shadow-sm">ADMIN SYSTEM</span>
         </div>
 
-        {/* 🛠️ 메인 탭 전환 메뉴 바 */}
+        {/* 🛠️ 메인 탭 전환 메뉴 바 (선택 바 부드러운 연출용 피팅) */}
         <div className="grid grid-cols-3 gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800 shadow-inner">
-          <button onClick={() => setAdminTab('reservation')} className={`py-2.5 rounded-lg text-xs font-bold transition-all flex flex-col items-center gap-1 ${adminTab === 'reservation' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
-            <span>📅 예약 관련 탭</span><span className="text-[9px] opacity-60 font-medium">(접수 / 예약자 관리)</span>
+          <button onClick={() => setAdminTab('reservation')} className={`py-2.5 rounded-lg text-xs font-black transition-all duration-300 transform active:scale-98 flex flex-col items-center gap-1 ${adminTab === 'reservation' ? 'bg-blue-600 text-white shadow-lg scale-[1.01]' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>
+            <span>📅 예약 정보</span><span className="text-[9px] opacity-60 font-medium">(예약자 관리)</span>
           </button>
-          <button onClick={() => setAdminTab('dashboard')} className={`py-2.5 rounded-lg text-xs font-bold transition-all flex flex-col items-center gap-1 ${adminTab === 'dashboard' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
-            <span>📊 대시보드 탭</span><span className="text-[9px] opacity-60 font-medium">(이용건수 / 종목별 분석)</span>
+          <button onClick={() => setAdminTab('dashboard')} className={`py-2.5 rounded-lg text-xs font-black transition-all duration-300 transform active:scale-98 flex flex-col items-center gap-1 ${adminTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg scale-[1.01]' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>
+            <span>📊 이용자 통계</span><span className="text-[9px] opacity-60 font-medium">(이용자수 / 종목별 분석)</span>
           </button>
-          <button onClick={() => setAdminTab('setting')} className={`py-2.5 rounded-lg text-xs font-bold transition-all flex flex-col items-center gap-1 ${adminTab === 'setting' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
-            <span>⚙️ 시설 설정 탭</span><span className="text-[9px] opacity-60 font-medium">(시간대 변동 / 공사 설정)</span>
+          <button onClick={() => setAdminTab('setting')} className={`py-2.5 rounded-lg text-xs font-black transition-all duration-300 transform active:scale-98 flex flex-col items-center gap-1 ${adminTab === 'setting' ? 'bg-blue-600 text-white shadow-lg scale-[1.01]' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>
+            <span>⚙️ 시설 관리</span><span className="text-[9px] opacity-60 font-medium">(운영시간 / 기간차단 설정)</span>
           </button>
         </div>
 
-        {/* 🔀 선택된 탭에 따라 하위 컴포넌트로 데이터 위임 배포 */}
-        {adminTab === 'reservation' && (
-          <AdminReservationTab
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            handleNavigateDate={handleNavigateDate}
-            activeBlockingRule={activeBlockingRule}
-            adaptedTimeSlots={adaptedTimeSlots}
-            getSlotStatusInfo={getSlotStatusInfo}
-            handleAdminReservationSubmit={handleAdminReservationSubmit}
-            dbReservations={dbReservations}
-            handleMasterCancel={handleMasterCancel}
-          />
-        )}
+        {/* 🔀 [부드러운 전환 효과 적용] 탭 전환 시 딱딱하게 바뀌지 않고 가볍게 스르륵 밀리며 페이드인 연출 */}
+        <div className="relative overflow-hidden w-full transition-all duration-300 ease-out">
+          
+          {adminTab === 'reservation' && (
+            <div className="animate-fade-in-up">
+              <AdminReservationTab
+                selectedDate={selectedDate}
+                setSelectedDate={setSelectedDate}
+                handleNavigateDate={handleNavigateDate}
+                activeBlockingRule={activeBlockingRule}
+                adaptedTimeSlots={adaptedTimeSlots}
+                getSlotStatusInfo={getSlotStatusInfo}
+                handleAdminReservationSubmit={handleAdminReservationSubmit}
+                dbReservations={dbReservations}
+                handleMasterCancel={handleMasterCancel}
+              />
+            </div>
+          )}
 
-        {adminTab === 'dashboard' && (
-          <AdminDashboardTab
-            dbReservations={dbReservations}
-            analysisPeriod={analysisPeriod}
-            setAnalysisPeriod={setAnalysisPeriod}
-            sports={globalSports} // 🎯 [연동 조준 완동] 하드코딩 배열을 대체하여 실시간 동적 종목을 배포합니다!
-          />
-        )}
+          {adminTab === 'dashboard' && (
+            <div className="animate-fade-in-up">
+              <AdminDashboardTab
+                dbReservations={dbReservations}
+                analysisPeriod={analysisPeriod}
+                setAnalysisPeriod={setAnalysisPeriod}
+                sports={globalSports} 
+              />
+            </div>
+          )}
 
-        {adminTab === 'setting' && (
-          <AdminSettingTab
-            dayOfWeek={dayOfWeek}
-            dynamicTimeConfigs={dynamicTimeConfigs}
-            blockingRules={blockingRules}
-            fetchTimeConfigs={fetchTimeConfigs}
-            fetchBlockingRules={fetchBlockingRules}
-            selectedDate={selectedDate}
-            fetchReservations={fetchReservations}
-            setSelectedDate={setSelectedDate}
-          />
-        )}
+          {adminTab === 'setting' && (
+            <div className="animate-fade-in-up">
+              <AdminSettingTab
+                dayOfWeek={dayOfWeek}
+                dynamicTimeConfigs={dynamicTimeConfigs}
+                blockingRules={blockingRules}
+                fetchTimeConfigs={fetchTimeConfigs}
+                fetchBlockingRules={fetchBlockingRules}
+                selectedDate={selectedDate}
+                fetchReservations={fetchReservations}
+                setSelectedDate={setSelectedDate}
+              />
+            </div>
+          )}
+
+        </div>
 
       </div>
+
+      {/* 🎨 부드러운 애니메이션 효과용 CSS 주입 */}
+      <style jsx global>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fade-in-up {
+          animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+      `}</style>
     </main>
   );
 }

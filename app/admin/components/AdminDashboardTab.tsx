@@ -51,7 +51,7 @@ export default function AdminDashboardTab({
       
       {/* ⏱️ 상단 분석 주기 제어 패널 */}
       <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-800 shadow-md">
-        <span className="text-xs font-bold text-slate-400">📊 데이터 분석 주기 설정:</span>
+        <span className="text-xs font-bold text-slate-400">이용 현황 분석 주기:</span>
         <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
           {(['day', 'week', 'month'] as const).map((period) => (
             <button
@@ -62,7 +62,7 @@ export default function AdminDashboardTab({
                 analysisPeriod === period ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {period === 'day' ? '당일 현황' : period === 'week' ? '주간 통계' : '월간 분석'}
+              {period === 'day' ? '일간' : period === 'week' ? '주간' : '월간'}
             </button>
           ))}
         </div>
@@ -73,18 +73,18 @@ export default function AdminDashboardTab({
         <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl space-y-1">
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Booking</p>
           <p className="text-2xl font-black text-white font-mono">{totalReservations}<span className="text-xs font-bold text-slate-500 ml-1">건</span></p>
-          <p className="text-[10px] text-slate-500">관측일 기준 총 접수 원장 개수</p>
+          <p className="text-[10px] text-slate-500">총 접수된 예약 개수</p>
         </div>
         <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl space-y-1">
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Court Utilization</p>
           <p className="text-2xl font-black text-emerald-400 font-mono">{totalCourtsAllocated}<span className="text-xs font-bold text-slate-500 ml-1">코트</span></p>
-          <p className="text-[10px] text-slate-500">배정 완료된 총 대관 코트 면적</p>
+          <p className="text-[10px] text-slate-500">총 대관 코트</p>
         </div>
       </div>
 
       {/* 📊 종목별 점유 분포 현황 분석 판넬 */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl space-y-3">
-        <p className="text-xs font-bold text-slate-400">📊 실시간 종목별 점유 분포 및 이용 현황 (마스터 연동)</p>
+        <p className="text-xs font-bold text-slate-400">실시간 종목별 점유 분포 및 이용 현황</p>
         
         <div className="space-y-3">
           {sportsDistribution.map((item) => (
