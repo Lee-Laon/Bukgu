@@ -50,11 +50,8 @@ export default function Home() {
   const [dbReservations, setDbReservations] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   
-  // 백오피스 설정 상태 연동
   const [maxBookingDays, setMaxBookingDays] = useState<number>(30);
   const [blockingRules, setBlockingRules] = useState<any[]>([]);
-  
-  // 실시간 동적 기간 예외 처리 메시지 상태
   const [dateErrorMessage, setDateErrorMessage] = useState<string>('');
 
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
@@ -106,7 +103,6 @@ export default function Home() {
     setDateRange(arr);
   }, []);
 
-  // 시차 보정 및 기간 예외 실시간 검증 엔진
   useEffect(() => {
     const days = ['일', '월', '화', '수', '목', '금', '토'];
     const dateObj = new Date(selectedDate);
@@ -170,12 +166,6 @@ export default function Home() {
       if (data && !error) {
         const limitDays = parseInt(data.value, 10);
         setMaxBookingDays(limitDays);
-        const maxDate = new Date();
-        maxDate.setDate(maxDate.getDate() + limitDays);
-        const yyyy = maxDate.getFullYear();
-        const mm = String(maxDate.getMonth() + 1).padStart(2, '0');
-        const dd = String(maxDate.getDate()).padStart(2, '0');
-        setMaxDateStr(`${yyyy}-${mm}-${dd}`);
       }
     };
     loadBookingLimit();
@@ -196,21 +186,19 @@ export default function Home() {
     return 'none' as const;
   };
 
-  // 🎯 [마스터 필터링 엔진 탑재 부문]
   const getSlotStatusInfo = (slotId: string, startTime: string): SlotStatusResult => {
     const slotReservations = dbReservations.filter((res) => res.slot_time.startsWith(startTime));
     
-    // 🔒 [초강력 가드] 만약 관리자가 꽂아 넣은 '행정 통제' 원장이 단 1건이라도 검색된다면 즉시 슬롯 강제 잠금
     const isEmergencyBlocked = slotReservations.some(res => res.sport_name === '행정 통제');
     if (isEmergencyBlocked) {
       return {
         allocatedCourts: 0,
-        remainingCourts: 0, // 주민 화면에 잔여 코트 없음으로 유도
-        isFull: true,        // 마감(차단) 상태 true 전환
+        remainingCourts: 0,
+        isFull: true,
         sportCount: 1,
         activeSports: ['행정 통제'],
         isSportLimitReached: true,
-        allowedSports: []    // 하위 탭 종목 선택권 박탈
+        allowedSports: []
       };
     }
 
@@ -282,12 +270,11 @@ export default function Home() {
       fetchReservations(selectedDate);
       handleStrictSearch('name', name);
       return true;
-    } else {
-      alert(`취소 실패: ${error.message}`);
-      return false;
     }
+    return false;
   };
 
+  // 🎯 [마지막 핵심 개정 엔진 부문] 인원수 기반 예약 코트 수 제한 조건 검증 가드 주입
   const handleReservationSubmit = async (
     slot: any, 
     sport: string, 
@@ -297,6 +284,27 @@ export default function Home() {
     headCount: number = 1, 
     courtCount: number = 1
   ): Promise<boolean> => {
+    
+    // 🔒 [비즈니스 가드 로직] 배드민턴 및 피클볼 종목 대상 코트 수 제한 밸리데이션 검증구문
+    if (sport === '배드민턴' || sport === '피클볼') {
+      if (headCount >= 1 && headCount <= 4) {
+        if (courtCount > 1) {
+          alert('1명 ~ 4명 이하 인원은 최대 1코트까지만 예약이 가능합니다.');
+          return false;
+        }
+      } else if (headCount >= 5 && headCount <= 8) {
+        if (courtCount > 2) {
+          alert('5명 ~ 8명 인원은 최대 2코트까지만 예약이 가능합니다.');
+          return false;
+        }
+      } else if (headCount >= 9) {
+        if (courtCount > 3) {
+          alert('9명 이상 인원은 최대 3코트까지만 예약이 가능합니다.');
+          return false;
+        }
+      }
+    }
+
     const hashedPassword = await hashPassword(pass.trim());
     const combined = `${name.trim()} (${phone.trim()}) [${hashedPassword}] {${headCount}명/${courtCount}코트}`;
     
@@ -343,7 +351,6 @@ export default function Home() {
     };
   });
 
-  // 장기 공사 통제 규칙 판별 가드
   const activeBlockingRule = blockingRules.find(rule => {
     const target = new Date(selectedDate);
     target.setHours(0, 0, 0, 0);
@@ -392,31 +399,17 @@ export default function Home() {
           {activeTab === 'booking' && (
             activeBlockingRule || dateErrorMessage ? (
               <div className={`w-full rounded-3xl p-8 text-center shadow-sm border transition-all duration-300 mt-4 ${
-                isDarkMode 
-                  ? 'bg-[#22222a] border-slate-800/60 text-slate-200 shadow-black/20' 
-                  : 'bg-white border-slate-100 text-slate-800'
+                isDarkMode ? 'bg-[#22222a] border-slate-800/60 text-slate-200 shadow-black/20' : 'bg-white border-slate-100 text-slate-800'
               }`}>
-                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse ${
-                  isDarkMode ? 'bg-rose-950/40' : 'bg-rose-50'
-                }`}>
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse ${isDarkMode ? 'bg-rose-950/40' : 'bg-rose-50'}`}>
                   <span className="text-2xl">🛑</span>
                 </div>
-                
                 <h3 className="text-sm font-black tracking-tight">체육관 대관 일시 중단 안내</h3>
-                
-                <div className={`mt-2.5 px-3 py-1.5 rounded-xl inline-block ${
-                  isDarkMode ? 'bg-rose-500/10' : 'bg-rose-50'
-                }`}>
-                  <p className="text-[11px] text-rose-500 font-extrabold">
-                    사유: {activeBlockingRule ? activeBlockingRule.reason : dateErrorMessage}
-                  </p>
+                <div className={`mt-2.5 px-3 py-1.5 rounded-xl inline-block ${isDarkMode ? 'bg-rose-500/10' : 'bg-rose-50'}`}>
+                  <p className="text-[11px] text-rose-500 font-extrabold">사유: {activeBlockingRule ? activeBlockingRule.reason : dateErrorMessage}</p>
                 </div>
-                
-                <p className={`text-[11px] mt-3.5 font-bold leading-relaxed transition-colors duration-300 ${
-                  isDarkMode ? 'text-slate-400' : 'text-slate-500'
-                }`}>
-                  시설 보수 및 공단 내부 행정 지침에 따라<br />
-                  해당 일정은 전 종목 대관 접수가 임시 제한됩니다.
+                <p className={`text-[11px] mt-3.5 font-bold leading-relaxed transition-colors duration-300 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  시설 보수 및 공단 내부 행정 지침에 따라<br />해당 일정은 전 종목 대관 접수가 임시 제한됩니다.
                 </p>
               </div>
             ) : (
