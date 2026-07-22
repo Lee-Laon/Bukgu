@@ -10,7 +10,6 @@ import AdminSettingTab from './components/AdminSettingTab';
 
 export default function AdminPage() {
   const [adminTab, setAdminTab] = useState<'reservation' | 'dashboard' | 'setting'>('reservation');
-  const [analysisPeriod, setAnalysisPeriod] = useState<'day' | 'week' | 'month'>('day');
 
   const getTodayString = () => {
     const today = new Date();
@@ -153,7 +152,11 @@ export default function AdminPage() {
     const { isFull, remainingCourts } = getSlotStatusInfo(slotKey);
     if (isFull || courtCount > remainingCourts) { alert(`❌ 코트 부족`); return; }
     
-    const combined = `${name.trim()} (${phone.trim()}) [${pass.trim()}] {${headCount}명/${courtCount}코트}`;
+    // 🎯 비밀번호 항목이 비어있으면 불필요한 해시 괄호 없이 깔끔한 유저 이름 생성
+    const combined = pass && pass.trim() 
+      ? `${name.trim()} (${phone.trim()}) [${pass.trim()}] {${headCount}명/${courtCount}코트}`
+      : `${name.trim()} (${phone.trim()}) {${headCount}명/${courtCount}코트}`;
+
     await supabase.from('reservations').insert([{ user_name: combined, sport_name: sport, reservation_date: selectedDate, slot_time: slotKey }]);
     fetchReservations(selectedDate);
   };
@@ -187,7 +190,7 @@ export default function AdminPage() {
           <span className="bg-red-500/10 text-red-400 text-xs px-3 py-1 rounded-full font-black border border-red-500/20 shadow-sm">ADMIN SYSTEM</span>
         </div>
 
-        {/* 🛠️ 메인 탭 전환 메뉴 바 (선택 바 부드러운 연출용 피팅) */}
+        {/* 🛠️ 메인 탭 전환 메뉴 바 */}
         <div className="grid grid-cols-3 gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800 shadow-inner">
           <button onClick={() => setAdminTab('reservation')} className={`py-2.5 rounded-lg text-xs font-black transition-all duration-300 transform active:scale-98 flex flex-col items-center gap-1 ${adminTab === 'reservation' ? 'bg-blue-600 text-white shadow-lg scale-[1.01]' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>
             <span>📅 예약 정보</span><span className="text-[9px] opacity-60 font-medium">(예약자 관리)</span>
@@ -200,9 +203,10 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* 🔀 [부드러운 전환 효과 적용] 탭 전환 시 딱딱하게 바뀌지 않고 가볍게 스르륵 밀리며 페이드인 연출 */}
+        {/* 🔀 탭 전환 서브 바인딩 매핑 플레이스 */}
         <div className="relative overflow-hidden w-full transition-all duration-300 ease-out">
           
+          {/* 🎯 [바인딩 수리 완료] 시설 관리 탭의 전역 종목 명단(sports={globalSports}) 전달 */}
           {adminTab === 'reservation' && (
             <div className="animate-fade-in-up">
               <AdminReservationTab
@@ -215,18 +219,14 @@ export default function AdminPage() {
                 handleAdminReservationSubmit={handleAdminReservationSubmit}
                 dbReservations={dbReservations}
                 handleMasterCancel={handleMasterCancel}
+                sports={globalSports}
               />
             </div>
           )}
 
           {adminTab === 'dashboard' && (
             <div className="animate-fade-in-up">
-              <AdminDashboardTab
-                dbReservations={dbReservations}
-                analysisPeriod={analysisPeriod}
-                setAnalysisPeriod={setAnalysisPeriod}
-                sports={globalSports} 
-              />
+              <AdminDashboardTab selectedDate={selectedDate} />
             </div>
           )}
 

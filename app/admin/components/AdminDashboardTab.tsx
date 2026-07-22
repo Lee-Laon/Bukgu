@@ -185,7 +185,7 @@ export default function AdminDashboardTab({ selectedDate }: AdminDashboardTabPro
 
           {/* 지표 카드 2 */}
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl text-left">
-            <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">총 이용 인원 명세</span>
+            <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">총 이용 인원</span>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-xl font-mono font-black text-emerald-400">{metrics.totalHeadCount}</span>
               <span className="text-xs text-slate-400 font-bold">명</span>
@@ -194,7 +194,7 @@ export default function AdminDashboardTab({ selectedDate }: AdminDashboardTabPro
 
           {/* 지표 카드 3 */}
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl text-left">
-            <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">시설 전체 가동율</span>
+            <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">시설 전체 사용률</span>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-xl font-mono font-black text-purple-400">{metrics.courtUtilization}</span>
               <span className="text-xs text-slate-400 font-bold">%</span>

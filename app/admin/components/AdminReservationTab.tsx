@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface AdminReservationTabProps {
   selectedDate: string;
@@ -10,9 +10,18 @@ interface AdminReservationTabProps {
   activeBlockingRule: any;
   adaptedTimeSlots: any[];
   getSlotStatusInfo: (startTime: string) => any;
-  handleAdminReservationSubmit: (slot: any, sport: string, name: string, phone: string, pass: string, headCount: number, courtCount: number) => void;
+  handleAdminReservationSubmit: (
+    slot: any,
+    sport: string,
+    name: string,
+    phone: string,
+    pass: string,
+    headCount: number,
+    courtCount: number
+  ) => Promise<void>;
   dbReservations: any[];
-  handleMasterCancel: (id: number) => void;
+  handleMasterCancel: (id: number) => Promise<void>;
+  sports?: string[];
 }
 
 export default function AdminReservationTab({
@@ -25,297 +34,489 @@ export default function AdminReservationTab({
   handleAdminReservationSubmit,
   dbReservations,
   handleMasterCancel,
+  sports = ['배드민턴', '피클볼', '농구'],
 }: AdminReservationTabProps) {
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [modalSlot, setModalSlot] = useState<any | null>(null);
+  const [modalSport, setModalSport] = useState<string>(sports[0] || '배드민턴');
+  const [modalName, setModalName] = useState<string>('');
+  const [modalPhone, setModalPhone] = useState<string>('');
+  const [modalHeadCount, setModalHeadCount] = useState<number>(4);
+  const [modalCourtCount, setModalCourtCount] = useState<number>(1);
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
-  /**
-   * 🧹 [백오피스 가독성 패치] user_name에서 불필요한 해시 비밀번호 대괄호 영역을 제거합니다.
-   */
-  const cleanUserInfoForAdmin = (rawUserName: string): string => {
-    if (!rawUserName) return '';
-    // 정규표현식을 사용하여 [외계어해시] 부분을 공백으로 날려버립니다.
-    const cleaned = rawUserName.replace(/\[[^\]]+\]\s*/, '');
-    return cleaned.replace(/\s+/g, ' ').trim();
+  const getTodayString = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   };
 
-  // 🎯 YYYY-MM-DD -> MM.DD(요일) 엑셀 내부 데이터용 포맷터
-  const formatExcelDate = (dateStr: string) => {
-    try {
-      const dateObj = new Date(dateStr);
-      const mm = dateObj.getMonth() + 1;
-      const dd = dateObj.getDate();
-      const days = ['일', '월', '화', '수', '목', '금', '토'];
-      const dayOfWeek = days[dateObj.getDay()];
-      return `${mm}.${dd}(${dayOfWeek})`;
-    } catch (e) {
-      return dateStr;
+  const getSlotTimeState = (startTime: string): 'PAST' | 'IN_PROGRESS' | 'FUTURE' => {
+    if (selectedDate !== getTodayString()) {
+      const selected = new Date(selectedDate);
+      const today = new Date(getTodayString());
+      return selected < today ? 'PAST' : 'FUTURE';
     }
-  };
 
-  // 🎯 [신규 행정 연산] 기준 날짜가 해당 월의 '몇 주차'인지 계산하는 함수
-  const getWeekOfMonthLabel = (dateStr: string) => {
-    const dateObj = new Date(dateStr);
-    const year = dateObj.getFullYear();
-    const month = dateObj.getMonth() + 1;
-    
-    const firstDayOfMonth = new Date(year, dateObj.getMonth(), 1);
-    const firstDayOfWeek = firstDayOfMonth.getDay();
-    
-    const offset = firstDayOfWeek === 0 ? -6 : 1 - firstDayOfWeek;
-    const firstMonday = new Date(firstDayOfMonth);
-    firstMonday.setDate(firstDayOfMonth.getDate() + offset);
-    
-    const diffTime = dateObj.getTime() - firstMonday.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    
-    const weekNum = Math.floor(diffDays / 7) + 1;
-    
-    return `${year}년 ${String(month).padStart(2, '0')}월 ${weekNum}주 (주간)`;
-  };
+    const currentTotal = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const [sH, sM] = startTime.split(':').map(Number);
+    const startTotal = sH * 60 + sM;
+    const endTotal = startTotal + 120; // 2시간 슬롯 기준
 
-  // 🎯 [신규 행정 연산] 일간 및 월간 가독성 파일명 라벨 생성기
-  const getFileNameLabel = (dateStr: string, rangeType: 'day' | 'month') => {
-    const dateObj = new Date(dateStr);
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const day = String(dateObj.getDate()).padStart(2, '0');
-    
-    if (rangeType === 'day') {
-      return `${year}년 ${month}월 ${day}일 (일간)`;
+    if (currentTotal >= endTotal) {
+      return 'PAST'; 
+    } else if (currentTotal >= startTotal && currentTotal < endTotal) {
+      return 'IN_PROGRESS'; 
     }
-    return `${year}년 ${month}월 (월간)`;
+    return 'FUTURE'; 
   };
 
-  // 📊 Core 엑셀 파일 조립 및 다운로드 공통 실행부
-  const executeDownload = (targetData: any[], completeFileName: string) => {
-    const headers = ['순번', '날짜', '시간대', '성명', '연락처', '종목', '인원', '코트'];
+  const handleOpenModal = (slot?: any) => {
+    const targetSlot = slot || adaptedTimeSlots.find((s) => getSlotTimeState(s.startTime) !== 'PAST');
+    if (!targetSlot) {
+      alert('대리 등록 가능한 시간대가 없습니다.');
+      return;
+    }
+    setModalSlot(targetSlot);
     
-    const rows = targetData.map((res, index) => {
-      const rawUser = res.user_name || '';
-      // 엑셀 내보내기 시에도 해시 비밀번호 영역을 제거하고 순수 데이터만 정제
-      const formattedUser = cleanUserInfoForAdmin(rawUser);
-      const name = formattedUser.split(' (')[0] || '';
+    const allowed = targetSlot.allowedSports && targetSlot.allowedSports.length > 0 
+      ? targetSlot.allowedSports 
+      : sports;
       
-      const phoneMatch = formattedUser.match(/\((.*?)\)/);
-      const phone = phoneMatch ? phoneMatch[1] : '';
-      
-      const courtMatch = formattedUser.match(/\{([\d.]+)명\/([\d.]+)코트\}/);
-      const headCount = courtMatch ? courtMatch[1] : '1';
-      const court = courtMatch ? courtMatch[2] : '1';
-
-      const rawStartTime = res.slot_time || '';
-      const startTime = rawStartTime.split(':').slice(0, 2).join(':'); 
-      
-      let endTime = '';
-      if (startTime) {
-        const [h, m] = startTime.split(':').map(Number);
-        endTime = `${String(h + 2).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      }
-      const timeRange = startTime && endTime ? `${startTime} ~ ${endTime}` : startTime;
-
-      return [
-        index + 1,
-        formatExcelDate(res.reservation_date),
-        timeRange,
-        name,
-        phone,
-        res.sport_name,
-        headCount,
-        court
-      ];
-    });
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    
-    link.setAttribute('download', `${completeFileName}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setModalSport(allowed[0] || sports[0] || '배드민턴');
+    setIsModalOpen(true);
   };
 
-  // 일간/주간/월간 범위 선택 및 다운로드 프로세서
-  const handleRangeDownload = async (rangeType: 'day' | 'week' | 'month') => {
-    setIsDropdownOpen(false);
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setModalName('');
+    setModalPhone('');
+    setModalHeadCount(4);
+    setModalCourtCount(1);
+  };
 
-    if (rangeType === 'day') {
-      if (!dbReservations || dbReservations.length === 0) {
-        alert('📊 현재 날짜에 예약 내역이 존재하지 않습니다.');
-        return;
-      }
-      const fileName = getFileNameLabel(selectedDate, 'day');
-      executeDownload(dbReservations, fileName);
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalSlot) return;
+    if (!modalName.trim() || !modalPhone.trim()) {
+      alert('예약자 성함과 연락처를 입력해 주세요.');
       return;
     }
 
-    setIsDownloading(true);
-    try {
-      const baseDate = new Date(selectedDate);
-      let startDateStr = selectedDate;
-      let endDateStr = selectedDate;
-      let calculatedFileName = '';
+    const slotState = getSlotTimeState(modalSlot.startTime);
+    if (slotState === 'PAST') {
+      alert('이미 운영이 종료된 시간대에는 대리 예약할 수 없습니다.');
+      return;
+    }
 
-      if (rangeType === 'week') {
-        const currentDay = baseDate.getDay(); 
-        const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-        
-        const monday = new Date(baseDate);
-        monday.setDate(baseDate.getDate() + distanceToMonday);
-        
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-
-        startDateStr = monday.toISOString().split('T')[0];
-        endDateStr = sunday.toISOString().split('T')[0];
-        
-        calculatedFileName = getWeekOfMonthLabel(selectedDate);
-      } 
-      else if (rangeType === 'month') {
-        const firstDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-        const lastDay = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
-
-        startDateStr = firstDay.toISOString().split('T')[0];
-        endDateStr = lastDay.toISOString().split('T')[0];
-        
-        calculatedFileName = getFileNameLabel(selectedDate, 'month');
-      }
-
-      const { data, error } = await supabase
-        .from('reservations')
-        .select('*')
-        .gte('reservation_date', startDateStr)
-        .lte('reservation_date', endDateStr)
-        .order('reservation_date', { ascending: true })
-        .order('slot_time', { ascending: true });
-
-      if (error) throw error;
-
-      if (!data || data.length === 0) {
-        alert(`📊 지정된 범위 [${startDateStr} ~ ${endDateStr}]에 예약 내역이 존재하지 않습니다.`);
+    if (slotState === 'IN_PROGRESS') {
+      if (!confirm('⚠️ 현재 이미 진행 중인 시간대입니다. 정말 대리 예약을 진행하시겠습니까?')) {
         return;
       }
-
-      executeDownload(data, calculatedFileName);
-
-    } catch (err: any) {
-      console.error(err);
-      alert('데이터 원장을 조회하는 과정에서 예외 에러가 발생했습니다.');
-    } finally {
-      setIsDownloading(false);
     }
+
+    await handleAdminReservationSubmit(
+      modalSlot,
+      modalSport,
+      modalName,
+      modalPhone,
+      '', 
+      modalHeadCount,
+      modalCourtCount
+    );
+
+    handleCloseModal();
   };
 
+  const availableSportOptions = modalSlot?.allowedSports && modalSlot.allowedSports.length > 0
+    ? modalSlot.allowedSports
+    : sports;
+
   return (
-    <div className="space-y-4 animate-fadeIn text-slate-200">
-      
-      {/* 날짜 제어 및 드롭다운 엑셀 통합 제어 센터 */}
-      <div className="flex flex-col sm:flex-row gap-3 justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-md">
+    <div className="space-y-5">
+      {/* 📅 상단 헤더 컨트롤 바 */}
+      <div className="flex flex-wrap justify-between items-center bg-slate-900/90 backdrop-blur-md p-4 rounded-2xl border border-slate-800 shadow-2xl gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => handleNavigateDate(-1)} className="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-700 transition-all">◀ 이전일</button>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs font-mono text-center text-blue-400 focus:outline-none focus:border-blue-500 font-bold"
-          />
-          <button onClick={() => handleNavigateDate(1)} className="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-700 transition-all">다음일 ▶</button>
+          <button
+            type="button"
+            onClick={() => handleNavigateDate(-1)}
+            className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold rounded-xl text-xs transition-all border border-slate-700/50"
+          >
+            ◀
+          </button>
+          <div className="relative flex items-center">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-slate-950 border border-slate-800 text-xs px-3 py-2 rounded-xl text-blue-400 font-mono font-black focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => handleNavigateDate(1)}
+            className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold rounded-xl text-xs transition-all border border-slate-700/50"
+          >
+            ▶
+          </button>
         </div>
 
-        {/* 📥 드롭다운 연동형 엑셀 내보내기 버튼 */}
-        <div className="relative w-full sm:w-auto">
-          <button
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            disabled={isDownloading}
-            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 text-white px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md border border-emerald-500/20"
-          >
-            <span>{isDownloading ? '⏳' : ''}</span> 
-            {isDownloading ? '데이터 조회 중...' : '엑셀 다운로드 ▾'}
-          </button>
+        <button
+          type="button"
+          onClick={() => handleOpenModal()}
+          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-all flex items-center gap-2 border border-blue-400/20"
+        >
+          <span className="text-sm">📝</span>
+          <span>현장/전화 등록</span>
+        </button>
+      </div>
 
-          {/* ▾ 드롭다운 메뉴 팝업 */}
-          {isDropdownOpen && (
-            <div className="absolute right-0 mt-1.5 w-full sm:w-40 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl z-50 overflow-hidden divide-y divide-slate-900">
-              <button onClick={() => handleRangeDownload('day')} className="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-white transition-all flex items-center gap-2"><span></span> 일간 이용자 명단</button>
-              <button onClick={() => handleRangeDownload('week')} className="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-white transition-all flex items-center gap-2"><span></span> 주간 이용자 명단</button>
-              <button onClick={() => handleRangeDownload('month')} className="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-white transition-all flex items-center gap-2"><span></span> 월간 이용자 명단</button>
+      {/* 🛑 차단 안내 알림 */}
+      {activeBlockingRule && (
+        <div className="bg-rose-950/40 border border-rose-800/60 rounded-2xl p-4 text-center shadow-lg animate-fade-in">
+          <p className="text-xs font-black text-rose-400 flex items-center justify-center gap-1.5">
+            <span>🚨</span>
+            <span>행정 통제 기간 적용 중: {activeBlockingRule.reason}</span>
+          </p>
+          <p className="text-[10px] text-rose-300/60 mt-1 font-mono">
+            통제 범위: {activeBlockingRule.start_date} ~ {activeBlockingRule.end_date}
+          </p>
+        </div>
+      )}
+
+      {/* 🏟️ 타임슬롯 그리드 카고 보드 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        {adaptedTimeSlots.map((slot) => {
+          const status = getSlotStatusInfo(slot.startTime);
+          const timeState = getSlotTimeState(slot.startTime);
+          const isFull = status.isFull || status.remainingCourts <= 0;
+          
+          const isPast = timeState === 'PAST';
+          const isInProgress = timeState === 'IN_PROGRESS';
+          const isDisabled = isPast || (isFull && !isInProgress) || activeBlockingRule;
+
+          return (
+            <div
+              key={slot.id}
+              className={`relative p-4 rounded-2xl border transition-all duration-200 text-left flex flex-col justify-between space-y-3 ${
+                isPast
+                  ? 'bg-slate-950/40 border-slate-900/80 text-slate-600 opacity-50'
+                  : isInProgress
+                  ? 'bg-amber-950/20 border-amber-500/40 text-amber-200 shadow-lg shadow-amber-950/20'
+                  : isFull
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-400'
+                  : 'bg-slate-900 border-slate-800/80 text-slate-100 hover:border-slate-700 shadow-xl'
+              }`}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-mono font-black text-sm ${isInProgress ? 'text-amber-400' : 'text-blue-400'}`}>
+                      {slot.startTime}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700/50">
+                      {slot.name}
+                    </span>
+                  </div>
+                  
+                  <div className="mt-2 flex items-center gap-2">
+                    {isPast ? (
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-500 border border-slate-700/30">
+                        ⌛ 운영 종료
+                      </span>
+                    ) : isInProgress ? (
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse">
+                        ⚠️ 이용 중 (비권장)
+                      </span>
+                    ) : isFull ? (
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-rose-950/60 text-rose-400 border border-rose-900/40">
+                        🛑 예약 마감
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-900/40">
+                        🟢 잔여 {status.remainingCourts}코트
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => handleOpenModal(slot)}
+                  className={`text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-sm ${
+                    isPast
+                      ? 'bg-slate-800/40 text-slate-600 border border-slate-800 cursor-not-allowed'
+                      : isInProgress
+                      ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40 active:scale-95'
+                      : isDisabled
+                      ? 'bg-slate-800/40 text-slate-600 border border-slate-800 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/20 active:scale-95'
+                  }`}
+                >
+                  {isPast ? '종료' : '등록'}
+                </button>
+              </div>
+
+              <div className="pt-2 border-t border-slate-800/60 flex justify-between items-center text-[10px]">
+                <span className="text-slate-500 font-bold">예약된 종목</span>
+                <span className="font-semibold text-slate-300">
+                  {status.activeSports && status.activeSports.length > 0
+                    ? status.activeSports.join(', ')
+                    : '자유 이용 가능'}
+                </span>
+              </div>
             </div>
+          );
+        })}
+      </div>
+
+      {/* 📋 실시간 대장 */}
+      <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-2xl space-y-4 text-left">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xs font-black text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <span>📋</span>
+            <span>[{selectedDate}] 대관 실시간 대장</span>
+          </h3>
+          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-blue-950 text-blue-400 border border-blue-900/50">
+            총 {dbReservations.length}건
+          </span>
+        </div>
+
+        <div className="space-y-2 max-h-80 overflow-y-auto no-scrollbar">
+          {dbReservations.length === 0 ? (
+            <div className="py-10 text-center space-y-1">
+              <p className="text-xs font-bold text-slate-500">신청된 대관 내역이 없습니다.</p>
+            </div>
+          ) : (
+            dbReservations.map((res) => {
+              const cleanDisplayName = res.user_name.replace(/\[.*?\]\s*/g, '');
+              return (
+                <div
+                  key={res.id}
+                  className="flex justify-between items-center bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 transition-all text-xs"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-black text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded border border-blue-900/40">
+                        {res.slot_time}
+                      </span>
+                      <span className="font-bold text-slate-200 text-sm">{cleanDisplayName}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      종목: <span className="text-slate-300 font-bold">{res.sport_name}</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleMasterCancel(res.id)}
+                    className="bg-rose-950/40 hover:bg-rose-600 text-rose-400 hover:text-white font-extrabold text-[11px] px-3 py-1.5 rounded-xl border border-rose-900/40 active:scale-95 transition-all"
+                  >
+                    강제 취소
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
 
-      {/* 🛑 공사 및 행정 통제 기간 Guard 배너 명시 */}
-      {activeBlockingRule && (
-        <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-xl text-center shadow-lg animate-pulse">
-          <p className="text-xs font-extrabold text-red-400">🛑 공단 통합 통제 안내</p>
-          <p className="text-[11px] font-bold text-slate-400 mt-1">사유: {activeBlockingRule.reason}</p>
-          <p className="text-[10px] text-slate-500 mt-0.5">지정된 기간 동안 주민용 대관 예약 접수 시스템이 임시 폐쇄됩니다.</p>
-        </div>
-      )}
+      {/* 🎯 [버튼형 선택 방식으로 전면 개편된 대리 예약 모달] */}
+      {isModalOpen &&
+        createPortal(
+          <div className="fixed inset-0 flex items-center justify-center p-4 md:p-6 z-[9999]">
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md animate-fade-in" onClick={handleCloseModal} />
+            <div className="relative bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 md:p-7 shadow-2xl space-y-6 z-10 text-left animate-slide-up max-h-[90vh] overflow-y-auto no-scrollbar">
+              <div className="flex justify-between items-start border-b border-slate-800/80 pb-4">
+                <div>
+                  <span className="text-[11px] font-black text-blue-500 uppercase tracking-widest font-mono">ADMIN TICKET</span>
+                  <h3 className="text-lg font-black text-slate-100 mt-1">현장 / 전화 대리 예약</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="text-slate-500 hover:text-slate-300 font-bold text-base px-2 py-1 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
 
-      {/* 타임슬롯별 접수 관리 리스트 */}
-      <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl space-y-4">
-        <h3 className="text-xs font-bold text-slate-400">📅 시설 예약 현황</h3>
-        
-        {/* 🎯 [Guard 연동 패치] 만약 통제 규칙이 활성화되어 있다면 타임슬롯 예약을 전면 빈 화면 처리하여 유저 인서트 차단 */}
-        {activeBlockingRule ? (
-          <div className="bg-slate-950 rounded-lg border border-slate-800/60 py-12 text-center">
-            <span className="text-2xl block mb-2">🔒</span>
-            <p className="text-xs font-bold text-slate-500">지정된 차단 기간에는 예약 현황을 조회하거나 추가할 수 없습니다.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {adaptedTimeSlots.map((slot) => {
-              const status = getSlotStatusInfo(slot.startTime);
-              const slotRes = dbReservations.filter(r => r.slot_time.startsWith(slot.startTime));
+              {modalSlot && getSlotTimeState(modalSlot.startTime) === 'IN_PROGRESS' && (
+                <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3.5 text-xs text-amber-300 font-bold">
+                  ⚠️ 선택하신 [{modalSlot.startTime}] 슬롯은 현재 이미 진행 중인 시간대입니다.
+                </div>
+              )}
 
-              return (
-                <div key={slot.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800/80 space-y-3">
-                  <div className="flex justify-between items-center border-b border-slate-900 pb-2">
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-mono font-black text-blue-400">[{slot.startTime}]</span>
-                      <span className="text-xs font-bold text-slate-300 ml-1.5">{slot.name}</span>
+              <form onSubmit={handleFormSubmit} className="space-y-5">
+                {/* 1. 희망 시간대 (버튼 선택형) */}
+                <div className="space-y-2">
+                  <label className="block text-xs text-slate-400 font-bold uppercase">희망 시간대 선택</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {adaptedTimeSlots.map((s) => {
+                      const state = getSlotTimeState(s.startTime);
+                      const isPast = state === 'PAST';
+                      const isInProgress = state === 'IN_PROGRESS';
+                      const isSelected = modalSlot?.startTime === s.startTime;
+
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          disabled={isPast}
+                          onClick={() => {
+                            setModalSlot(s);
+                            const allowed = s.allowedSports && s.allowedSports.length > 0 ? s.allowedSports : sports;
+                            setModalSport(allowed[0] || sports[0] || '배드민턴');
+                          }}
+                          className={`p-3 rounded-xl border text-left transition-all font-mono font-bold text-xs flex flex-col justify-between gap-1 ${
+                            isPast
+                              ? 'bg-slate-950/40 border-slate-900 text-slate-600 cursor-not-allowed opacity-40'
+                              : isSelected
+                              ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-600/20 ring-2 ring-blue-500/30'
+                              : isInProgress
+                              ? 'bg-amber-950/20 border-amber-500/40 text-amber-300 hover:bg-amber-950/40'
+                              : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center w-full">
+                            <span className="text-sm font-black">{s.startTime}</span>
+                            {isPast && <span className="text-[9px] text-slate-500">종료</span>}
+                            {isInProgress && <span className="text-[9px] text-amber-400 font-extrabold">이용중</span>}
+                          </div>
+                          <span className={`text-[10px] font-sans ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
+                            {s.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. 이용 종목 (버튼 선택형) */}
+                <div className="space-y-2">
+                  <label className="block text-xs text-slate-400 font-bold uppercase">이용 종목 선택</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {availableSportOptions.map((sp: string) => {
+                      const isSelected = modalSport === sp;
+                      return (
+                        <button
+                          key={sp}
+                          type="button"
+                          onClick={() => setModalSport(sp)}
+                          className={`py-3 px-2 rounded-xl border text-center text-xs font-bold transition-all ${
+                            isSelected
+                              ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-600/20 ring-2 ring-blue-500/30'
+                              : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          {sp}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. 신청자 성함 */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs text-slate-400 font-bold uppercase">신청자 성함</label>
+                  <input
+                    type="text"
+                    placeholder="성함을 입력하세요 (예: 이강민)"
+                    value={modalName}
+                    onChange={(e) => setModalName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-sm text-slate-100 font-bold placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                {/* 4. 연락처 */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs text-slate-400 font-bold uppercase">연락처</label>
+                  <input
+                    type="text"
+                    placeholder="010-0000-0000"
+                    value={modalPhone}
+                    onChange={(e) => setModalPhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-sm text-slate-100 font-mono font-bold placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                {/* 5. 인원수 및 코트수 수량 제어 */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs text-slate-400 font-bold uppercase">이용 인원수</label>
+                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden h-[48px]">
+                      <button
+                        type="button"
+                        onClick={() => setModalHeadCount((prev) => Math.max(1, prev - 1))}
+                        className="w-12 h-full text-slate-400 font-bold hover:bg-slate-800 text-lg"
+                      >
+                        -
+                      </button>
+                      <span className="flex-1 text-center text-sm font-mono font-bold text-slate-100">
+                        {modalHeadCount}명
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setModalHeadCount((prev) => Math.min(30, prev + 1))}
+                        className="w-12 h-full text-slate-400 font-bold hover:bg-slate-800 text-lg"
+                      >
+                        +
+                      </button>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${status.isFull ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                      {status.isFull ? '매진' : `잔여: ${status.remainingCourts}코트`}
-                    </span>
                   </div>
 
                   <div className="space-y-1.5">
-                    {slotRes.map((res) => (
-                      <div key={res.id} className="flex justify-between items-center bg-slate-900/60 px-2.5 py-2 rounded border border-slate-800/40 text-xs">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="bg-slate-800 text-[10px] px-1.5 py-0.2 rounded text-slate-400 font-bold">{res.sport_name}</span>
-                            {/* 🎯 정제 함수(cleanUserInfoForAdmin)를 씌워서 비밀번호 해시 문자열을 화면에서 완벽 제거 */}
-                            <span className="font-medium text-slate-200">
-                              {cleanUserInfoForAdmin(res.user_name)}
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleMasterCancel(res.id)}
-                          className="text-[10px] text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-2 py-0.5 rounded font-bold transition-all"
-                        >
-                          강제 취소
-                        </button>
-                      </div>
-                    ))}
-                    {slotRes.length === 0 && (
-                      <p className="text-[10px] text-slate-600 text-center py-2">배정된 예약 원장이 없습니다.</p>
-                    )}
+                    <label className="block text-xs text-slate-400 font-bold uppercase">필요 코트수</label>
+                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden h-[48px]">
+                      <button
+                        type="button"
+                        onClick={() => setModalCourtCount((prev) => Math.max(1, prev - 1))}
+                        className="w-12 h-full text-slate-400 font-bold hover:bg-slate-800 text-lg"
+                      >
+                        -
+                      </button>
+                      <span className="flex-1 text-center text-sm font-mono font-bold text-blue-400">
+                        {modalCourtCount}코트
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setModalCourtCount((prev) => Math.min(3, prev + 1))}
+                        className="w-12 h-full text-slate-400 font-bold hover:bg-slate-800 text-lg"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
 
+                {/* 하단 액션 버튼 */}
+                <div className="flex gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={handleCloseModal}
+                    className="flex-1 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg shadow-blue-900/30 active:scale-98 transition-all"
+                  >
+                    대리 예약 등록 완료
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

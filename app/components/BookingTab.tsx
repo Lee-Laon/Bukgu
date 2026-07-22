@@ -262,7 +262,7 @@ export default function BookingTab({
             <h2 className={`text-xl font-black tracking-tight leading-snug transition-colors ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
               언제 시간대로 예약할까요?
             </h2>
-            <p className="text-[11px] text-slate-400 font-medium">대관을 원하시는 희망 시간대를 탭해 주세요.</p>
+            <p className="text-[11px] text-slate-400 font-medium">대관을 원하시는 희망 시간대를 터치해 주세요.</p>
           </div>
           <div className="grid grid-cols-1 gap-3 pt-2">
             {timeSlots.map((slot) => {

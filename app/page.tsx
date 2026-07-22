@@ -41,7 +41,6 @@ export default function Home() {
   const todayStr = getTodayString();
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [dayOfWeek, setDayOfWeek] = useState<string>('');
-  const [maxDateStr, setMaxDateStr] = useState<string>(todayStr);
   const [dynamicTimeConfigs, setDynamicTimeConfigs] = useState<any[]>([]);
   const [globalSports, setGlobalSports] = useState<string[]>(['배드민턴', '피클볼', '농구']);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
@@ -196,7 +195,7 @@ export default function Home() {
         remainingCourts: 0,
         isFull: true,
         sportCount: 1,
-        activeSports: ['행정 통제'],
+        activeSports: ['임시 예약 불가'],
         isSportLimitReached: true,
         allowedSports: []
       };
@@ -274,7 +273,7 @@ export default function Home() {
     return false;
   };
 
-  // 🎯 [마지막 핵심 개정 엔진 부문] 인원수 기반 예약 코트 수 제한 조건 검증 가드 주입
+  // 🎯 [중복 예약 방지 엔진 적용] 동일 일자/동일 시간대 2회 이상 예약 신청 전면 차단
   const handleReservationSubmit = async (
     slot: any, 
     sport: string, 
@@ -285,7 +284,28 @@ export default function Home() {
     courtCount: number = 1
   ): Promise<boolean> => {
     
-    // 🔒 [비즈니스 가드 로직] 배드민턴 및 피클볼 종목 대상 코트 수 제한 밸리데이션 검증구문
+    const cleanPhone = phone.trim();
+    const cleanName = name.trim();
+
+    // 🔒 [중복 검증 가드] 동일 날짜, 동일 시간대에 해당 연락처나 성함으로 이미 예약된 건이 있는지 체크
+    const { data: existingRecords, error: checkError } = await supabase
+      .from('reservations')
+      .select('user_name')
+      .eq('reservation_date', selectedDate)
+      .eq('slot_time', slot.startTime);
+
+    if (!checkError && existingRecords) {
+      const isDuplicate = existingRecords.some((record) => {
+        return record.user_name.includes(`(${cleanPhone})`) || record.user_name.startsWith(cleanName);
+      });
+
+      if (isDuplicate) {
+        alert(`❌ 이미 ${selectedDate} ${slot.startTime} 시간대에 신청된 예약 내역이 존재합니다.\n동일 시간대에는 중복 신청이 불가능합니다.`);
+        return false;
+      }
+    }
+
+    // 인원수 비례 코트 제한 가드
     if (sport === '배드민턴' || sport === '피클볼') {
       if (headCount >= 1 && headCount <= 4) {
         if (courtCount > 1) {
@@ -306,7 +326,7 @@ export default function Home() {
     }
 
     const hashedPassword = await hashPassword(pass.trim());
-    const combined = `${name.trim()} (${phone.trim()}) [${hashedPassword}] {${headCount}명/${courtCount}코트}`;
+    const combined = `${cleanName} (${cleanPhone}) [${hashedPassword}] {${headCount}명/${courtCount}코트}`;
     
     const { error } = await supabase.from('reservations').insert([{ 
       user_name: combined, sport_name: sport, reservation_date: selectedDate, slot_time: slot.startTime 
@@ -314,7 +334,7 @@ export default function Home() {
     
     if (!error) {
       setSuccessDetails({
-        name: name.trim(),
+        name: cleanName,
         sport,
         date: selectedDate,
         time: slot.startTime,
@@ -404,12 +424,12 @@ export default function Home() {
                 <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse ${isDarkMode ? 'bg-rose-950/40' : 'bg-rose-50'}`}>
                   <span className="text-2xl">🛑</span>
                 </div>
-                <h3 className="text-sm font-black tracking-tight">체육관 대관 일시 중단 안내</h3>
+                <h3 className="text-sm font-black tracking-tight">체육관 예약 불가 안내</h3>
                 <div className={`mt-2.5 px-3 py-1.5 rounded-xl inline-block ${isDarkMode ? 'bg-rose-500/10' : 'bg-rose-50'}`}>
                   <p className="text-[11px] text-rose-500 font-extrabold">사유: {activeBlockingRule ? activeBlockingRule.reason : dateErrorMessage}</p>
                 </div>
                 <p className={`text-[11px] mt-3.5 font-bold leading-relaxed transition-colors duration-300 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                  시설 보수 및 공단 내부 행정 지침에 따라<br />해당 일정은 전 종목 대관 접수가 임시 제한됩니다.
+                  해당 일정은 공단 내부 운영 규칙에 따라<br />예약이 불가능한 기간입니다.
                 </p>
               </div>
             ) : (
@@ -490,7 +510,7 @@ export default function Home() {
             </div>
             <h3 className="text-base font-black tracking-tight mb-1">예약 취소 완료</h3>
             <p className="text-xs text-slate-400 font-semibold mb-4">신청하신 대관 예약이 정상적으로 삭제되었습니다.</p>
-            <div className={`rounded-2xl p-4 text-left text-xs font-bold space-y-2 mb-5 ${isDarkMode ? 'bg-slate-900/60' : 'bg-slate-50'}`}>
+            <div className={`rounded-2xl p-4 text-left text-xs font-bold space-y-2 mb-5 ${isDarkMode ? 'bg-[#1d1d24]' : 'bg-slate-50'}`}>
               <div className="flex justify-between"><span className="text-slate-400">기존 예약자</span><span>{cancelDetails.name} 님</span></div>
               <div className="flex justify-between"><span className="text-rose-500 font-black">{cancelDetails.sport}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">대관 일자</span><span>{cancelDetails.date}</span></div>
